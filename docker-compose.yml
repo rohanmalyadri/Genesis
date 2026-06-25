@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis/redis-stack:latest
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+    volumes:
+      - redis_data:/data
+    restart: always
+
+  app:
+    build: 
+      context: .
+      dockerfile: app/Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CHROMA_PERSIST_DIRECTORY=/app/chroma_db
+      - NUM_SHARDS=16
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - chroma_data:/app/chroma_db
+
+  celery-beat:
+    build: 
+      context: .
+      dockerfile: app/Dockerfile
+    command: celery -A app.celery beat --loglevel=info --schedule=celery-schedule.db
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - CHROMA_PERSIST_DIRECTORY=/app/chroma_db
+      - NUM_SHARDS=16
+    depends_on:
+      - redis
+      - app
+    volumes:
+      - .:/app
+      - chroma_data:/app/chroma_db
+
+volumes:
+  redis_data:
+  chroma_data:

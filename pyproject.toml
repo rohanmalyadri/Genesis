@@ -1,0 +1,61 @@
+[project]
+name = "production-rag-system"
+version = "0.1.0"
+description = "A production-ready RAG system with advanced retrieval, agents, and security."
+authors = [{ name = "Rohan Malyadri" }]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "chromadb",
+    "redis[hiredis]",
+    "sentence-transformers",
+    "rank-bm25",
+    "google-generativeai",
+    "langchain",
+    "tiktoken",
+    "presidio-analyzer",
+    "spacy",
+    "datasketch",
+    "pdfplumber",
+    "pytesseract",
+    "python-docx",
+    "beautifulsoup4",
+    "chardet",
+    "opik",
+    "python-multipart",
+    "aiofiles",
+    "httpx",
+    "pydantic-settings",
+    "python-magic",
+    "tabulate",
+    "networkx",
+    "celery",
+    "scipy",
+    "numpy",
+    "neo4j",
+    "transformers",
+    "torch",
+    "spacy-transformers",
+    "openai",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "black",
+    "isort",
+    "mypy",
+    "testcontainers[neo4j]",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app", "routes", "services", "retrieval", "agents", "pipeline", "security", "prompts"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
