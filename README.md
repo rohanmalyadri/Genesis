@@ -398,8 +398,7 @@ Tech: golden dataset · pytest-benchmark · ROUGE-L · GitHub Actions deployment
 ---
 
 ## 📜 License
-
-This project and its source code are the sole property of **Rohan Malyadri**. All rights reserved. See [LICENSE](./LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
 
 ---
 
