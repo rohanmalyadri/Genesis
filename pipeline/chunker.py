@@ -4,7 +4,7 @@ from typing import List
 from app.config import settings
 
 class Chunker:
-    def __init__(self, max_tokens: int = 512, overlap: int = 64):
+    def __init__(self, max_tokens: int = 256, overlap: int = 32):
         self.max_tokens = max_tokens
         self.overlap = overlap
         self._tokenizer = None

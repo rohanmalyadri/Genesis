@@ -14,7 +14,12 @@ from google.api_core import exceptions as gexc
 from app.config import settings
 
 # tried in order after the requested model when it is rate limited or unavailable
-FALLBACK_MODELS = ["gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-2.5-flash"]
+FALLBACK_MODELS = [
+    "gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.1-flash-lite",
+    "gemini-3.7-flash", "gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash",
+]
+TRANSIENT = (gexc.ServiceUnavailable, gexc.DeadlineExceeded, gexc.InternalServerError)
+RETRY_ROUNDS = 3  # extra passes over the model list when failures were temporary (503), not quota
 RETRYABLE = (
     gexc.ResourceExhausted,
     gexc.ServiceUnavailable,
@@ -83,13 +88,19 @@ async def generate(prompt: str, json_mode: bool = False, model: Optional[str] = 
     """One-shot generation with model fallback. Raises the last error if all fail."""
     loop = asyncio.get_running_loop()
     last: Optional[Exception] = None
-    for name in candidate_models(model):
-        try:
-            async with _sem():
-                return await loop.run_in_executor(None, lambda n=name: _generate_sync(prompt, n, json_mode))
-        except RETRYABLE as e:
-            _mark_failed(name, e)
-            last = e
+    for attempt in range(RETRY_ROUNDS):
+        transient = False
+        for name in candidate_models(model):
+            try:
+                async with _sem():
+                    return await loop.run_in_executor(None, lambda n=name: _generate_sync(prompt, n, json_mode))
+            except RETRYABLE as e:
+                _mark_failed(name, e)
+                last = e
+                transient = transient or isinstance(e, TRANSIENT)
+        if not transient:
+            break  # every model is out of quota: waiting a few seconds will not help
+        await asyncio.sleep(2 * (attempt + 1))
     raise last or RuntimeError("No Gemini model available")
 
 
@@ -99,45 +110,51 @@ async def stream(prompt: str, model: Optional[str] = None) -> AsyncGenerator[str
     loop = asyncio.get_running_loop()
     last: Optional[Exception] = None
 
-    for name in candidate_models(model):
-        queue: asyncio.Queue = asyncio.Queue()
+    for attempt in range(RETRY_ROUNDS):
+        transient = False
+        for name in candidate_models(model):
+            queue: asyncio.Queue = asyncio.Queue()
 
-        def worker(n: str = name, q: asyncio.Queue = queue):
-            try:
-                for chunk in genai.GenerativeModel(n).generate_content(
-                    prompt, stream=True, request_options=REQUEST_OPTIONS
-                ):
-                    try:
-                        text = chunk.text
-                    except ValueError:  # blocked or empty chunk
-                        text = ""
-                    if text:
-                        loop.call_soon_threadsafe(q.put_nowait, ("token", text))
-                loop.call_soon_threadsafe(q.put_nowait, ("done", None))
-            except Exception as e:  # noqa: BLE001
-                loop.call_soon_threadsafe(q.put_nowait, ("error", e))
+            def worker(n: str = name, q: asyncio.Queue = queue):
+                try:
+                    for chunk in genai.GenerativeModel(n).generate_content(
+                        prompt, stream=True, request_options=REQUEST_OPTIONS
+                    ):
+                        try:
+                            text = chunk.text
+                        except ValueError:  # blocked or empty chunk
+                            text = ""
+                        if text:
+                            loop.call_soon_threadsafe(q.put_nowait, ("token", text))
+                    loop.call_soon_threadsafe(q.put_nowait, ("done", None))
+                except Exception as e:  # noqa: BLE001
+                    loop.call_soon_threadsafe(q.put_nowait, ("error", e))
 
-        loop.run_in_executor(None, worker)
-        produced = False
-        failed: Optional[Exception] = None
-        while True:
-            kind, value = await queue.get()
-            if kind == "token":
-                produced = True
-                yield value
-            elif kind == "error":
-                failed = value
-                break
-            else:
-                break
+            loop.run_in_executor(None, worker)
+            produced = False
+            failed: Optional[Exception] = None
+            while True:
+                kind, value = await queue.get()
+                if kind == "token":
+                    produced = True
+                    yield value
+                elif kind == "error":
+                    failed = value
+                    break
+                else:
+                    break
 
-        if failed is None:
-            if not produced:
-                yield "I could not generate an answer for this question (the model returned no text)."
-            return
-        if produced or not isinstance(failed, RETRYABLE):
-            raise failed
-        _mark_failed(name, failed)
-        last = failed
+            if failed is None:
+                if not produced:
+                    yield "I could not generate an answer for this question (the model returned no text)."
+                return
+            if produced or not isinstance(failed, RETRYABLE):
+                raise failed
+            _mark_failed(name, failed)
+            last = failed
+            transient = transient or isinstance(failed, TRANSIENT)
+        if not transient:
+            break
+        await asyncio.sleep(2 * (attempt + 1))
 
     raise last or RuntimeError("No Gemini model available")

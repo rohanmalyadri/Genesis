@@ -56,3 +56,4 @@ server.log
 check_models.py
 test_import.py
 .run/
+dump.rdb

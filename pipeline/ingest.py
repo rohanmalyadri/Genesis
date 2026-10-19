@@ -42,7 +42,7 @@ class IngestionPipeline:
             return [image_extractor.extract(file_path)]
         return [text_extractor.extract(file_path)]
 
-    def _prepare(self, file_path: str, ext: str, scope: str, document_id: str, chunk_size: int = 512) -> Optional[Tuple[str, List[Tuple[str, int]]]]:
+    def _prepare(self, file_path: str, ext: str, scope: str, document_id: str, chunk_size: int = 256) -> Optional[Tuple[str, List[Tuple[str, int]]]]:
         """CPU-bound work: extract, clean, dedupe, chunk. Runs in a worker thread."""
         mime_type = self.mime.from_file(file_path)
         logger.info(f"Ingesting {document_id} (mime={mime_type}, ext={ext})")
@@ -56,7 +56,7 @@ class IngestionPipeline:
         if deduplicator.is_duplicate(full_content, doc_id=document_id, scope=scope):
             return None
 
-        page_chunker = chunker if chunk_size == chunker.max_tokens else Chunker(max_tokens=chunk_size, overlap=min(64, chunk_size // 8))
+        page_chunker = chunker if chunk_size == chunker.max_tokens else Chunker(max_tokens=chunk_size, overlap=min(32, chunk_size // 8))
         chunk_texts: List[Tuple[str, int]] = []
         for page_no, page_text in enumerate(pages, start=1):
             for text in page_chunker.split_text(page_text, file_ext=ext):
@@ -105,7 +105,7 @@ class IngestionPipeline:
         use_sharding: bool = True,
         skip_graph: bool = False,
         original_name: Optional[str] = None,
-        chunk_size: int = 512,
+        chunk_size: int = 256,
     ) -> Dict[str, Any]:
         loop = asyncio.get_running_loop()
         document_id = original_name or os.path.basename(file_path)

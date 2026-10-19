@@ -47,6 +47,8 @@ def _friendly_error(e: Exception) -> str:
     if "perday" in low or "per day" in low:
         return ("The free-tier daily Gemini quota is used up for every available model. "
                 "It resets daily; adding billing to the Google AI Studio project removes the limit.")
+    if "high demand" in low or "unavailable" in low or "deadline" in low or "503" in low:
+        return "The Gemini models are very busy right now. Please try again in a few seconds."
     if "quota" in low or "429" in low or "rate" in low:
         return "The Gemini API rate limit or quota was reached. Please try again in a moment."
     return f"The language model request failed: {text[:200]}"

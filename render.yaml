@@ -27,6 +27,8 @@ services:
         value: "false"
       - key: GRAPH_ENABLED         # no Neo4j on the free plan
         value: "false"
+      - key: PDF_ENGINE            # poppler pdftotext: far less memory than pdfplumber
+        value: poppler
       - key: RATE_LIMIT_PER_MINUTE
         value: "20"
       - key: ALLOWED_HOSTS
