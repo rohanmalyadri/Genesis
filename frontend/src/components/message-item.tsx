@@ -4,11 +4,12 @@ import { Message } from "@/lib/types";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Badge } from "./ui/badge";
-import { Bot, User, Copy, RotateCcw, ThumbsUp, ThumbsDown, Check } from "lucide-react";
-import { useState } from "react";
+import { Bot, User, Copy, Check, AlertCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Button } from "./ui/button";
 import { toast } from "sonner";
 import { ReasoningTrace } from "./ReasoningTrace";
+import { loadSettings } from "@/lib/settings";
 
 interface MessageItemProps {
   message: Message;
@@ -17,6 +18,12 @@ interface MessageItemProps {
 export function MessageItem({ message }: MessageItemProps) {
   const isAssistant = message.role === "assistant";
   const [copied, setCopied] = useState(false);
+  const [showTrace, setShowTrace] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setShowTrace(loadSettings().showTrace), 0);
+    return () => clearTimeout(t);
+  }, []);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content);
@@ -48,7 +55,15 @@ export function MessageItem({ message }: MessageItemProps) {
           </Badge>
         );
       }
-      return <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} className="inline">{part}</ReactMarkdown>;
+      return (
+        <ReactMarkdown
+          key={i}
+          remarkPlugins={[remarkGfm]}
+          components={{ p: ({ children }) => <span>{children}</span> }}
+        >
+          {part}
+        </ReactMarkdown>
+      );
     });
   };
 
@@ -63,16 +78,19 @@ export function MessageItem({ message }: MessageItemProps) {
       <div className={`flex flex-col gap-2 max-w-[85%] ${!isAssistant && "items-end"}`}>
         <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
           isAssistant 
-            ? "bg-muted/50 border border-border" 
+            ? message.isError
+              ? "bg-red-500/10 border border-red-500/30 text-red-600"
+              : "bg-muted/50 border border-border"
             : "bg-primary text-primary-foreground"
         }`}>
           {isAssistant ? (
              <div className="prose prose-sm dark:prose-invert max-w-none">
+                {message.isError && <AlertCircle className="mr-1 inline h-4 w-4 align-[-3px]" />}
                 {renderContent(message.content)}
                 {isAssistant && message.content === "" && !message.reasoningTrace && (
                   <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1" />
                 )}
-                {isAssistant && message.reasoningTrace && (
+                {isAssistant && showTrace && message.reasoningTrace && (
                   <ReasoningTrace 
                     steps={message.reasoningTrace} 
                     finalTrace={message.finalTrace}
@@ -87,21 +105,17 @@ export function MessageItem({ message }: MessageItemProps) {
 
         {isAssistant && message.content && (
           <div className="flex items-center gap-1 ml-1">
-            <Button variant="ghost" size="icon" className="w-8 h-8 hov" onClick={handleCopy}>
+            <Button variant="ghost" size="icon" className="w-8 h-8" onClick={handleCopy}>
               {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
-            </Button>
-            <Button variant="ghost" size="icon" className="w-8 h-8">
-              <RotateCcw className="w-3.5 h-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="w-8 h-8">
-              <ThumbsUp className="w-3.5 h-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="w-8 h-8">
-              <ThumbsDown className="w-3.5 h-3.5" />
             </Button>
             {message.trace && (
                <span className="text-[10px] text-muted-foreground ml-2">
-                 {message.trace.model} • {message.trace.latencies.llm_stream?.toFixed(0)}ms
+                 {message.trace.model}
+                 {message.trace.cache_hit
+                   ? " • cached"
+                   : message.trace.latencies.gemini_stream !== undefined
+                     ? ` • ${message.trace.latencies.gemini_stream.toFixed(0)}ms`
+                     : ""}
                </span>
             )}
           </div>

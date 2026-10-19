@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { HealthStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { MessageSquare, Upload, Search, Settings, Bot, Terminal } from "lucide-react";
 
@@ -18,7 +19,7 @@ const navItems = [
 
 export function SidebarNav() {
   const pathname = usePathname();
-  const [healthStatus, setHealthStatus] = useState<{status: string, [key: string]: unknown} | null>(null);
+  const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -39,17 +40,24 @@ export function SidebarNav() {
   }, []);
 
   const isHealthy = healthStatus?.status === "healthy";
-  const statusColor = !healthStatus ? "bg-amber-500" : isHealthy ? "bg-green-500" : "bg-red-500";
-  const statusText = !healthStatus ? "Checking services..." : isHealthy ? "All services operational. GPU inference ready." : "System performance degraded. Some services offline.";
+  const graphOffline = isHealthy && healthStatus?.neo4j !== "healthy";
+  const statusColor = !healthStatus ? "bg-amber-500" : !isHealthy ? "bg-red-500" : graphOffline ? "bg-amber-500" : "bg-green-500";
+  const statusText = !healthStatus
+    ? "Checking services..."
+    : !isHealthy
+      ? "Backend unreachable or a core service (Redis, Chroma, Gemini key) is down."
+      : graphOffline
+        ? "Core services online. Graph database is offline, so graph reasoning is off."
+        : "All services operational.";
 
   return (
     <aside className="w-16 md:w-64 border-r border-border bg-background flex flex-col transition-all duration-300">
-      <div className="p-6 flex items-center gap-3">
+      <Link href="/" className="p-6 flex items-center gap-3">
         <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
           <Terminal className="w-5 h-5 text-primary-foreground" />
         </div>
-        <span className="font-bold hidden md:block">RAG Monorepo</span>
-      </div>
+        <span className="font-bold hidden md:block">Genesis RAG</span>
+      </Link>
 
       <nav className="flex-1 px-3 space-y-1">
         {navItems.map((item) => {

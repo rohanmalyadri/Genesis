@@ -10,53 +10,35 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Shield, Brain, Database, Save } from "lucide-react";
 import { toast } from "sonner";
+import { AppSettings, DEFAULT_SETTINGS, loadSettings, saveSettings } from "@/lib/settings";
 
 export default function SettingsPage() {
-  const [chunkSize, setChunkSize] = useState([512]);
-  const [topK, setTopK] = useState([5]);
-  const [model, setModel] = useState("gemini-3-flash");
-  
-  const [inputGuard, setInputGuard] = useState(true);
-  const [contentFilter, setContentFilter] = useState(true);
-  const [outputGuard, setOutputGuard] = useState(true);
-  const [showTrace, setShowTrace] = useState(true);
-  
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    setTimeout(() => {
+    const t = setTimeout(() => {
+      setSettings(loadSettings());
       setIsMounted(true);
-      const saved = localStorage.getItem("rag_settings");
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (parsed.chunkSize) setChunkSize(parsed.chunkSize);
-          if (parsed.topK) setTopK(parsed.topK);
-          if (parsed.model) setModel(parsed.model);
-          if (typeof parsed.inputGuard === 'boolean') setInputGuard(parsed.inputGuard);
-          if (typeof parsed.contentFilter === 'boolean') setContentFilter(parsed.contentFilter);
-          if (typeof parsed.outputGuard === 'boolean') setOutputGuard(parsed.outputGuard);
-          if (typeof parsed.showTrace === 'boolean') setShowTrace(parsed.showTrace);
-        } catch (e) {
-          console.error("Failed to parse settings", e);
-        }
-      }
     }, 0);
+    return () => clearTimeout(t);
   }, []);
 
+  const patch = (p: Partial<AppSettings>) => setSettings((prev) => ({ ...prev, ...p }));
+  const asArray = (v: number | readonly number[]) => (Array.isArray(v) ? [...v] : [v as number]);
+
   const handleSave = () => {
-    const settings = {
-      chunkSize,
-      topK,
-      model,
-      inputGuard,
-      contentFilter,
-      outputGuard,
-      showTrace
-    };
-    localStorage.setItem("rag_settings", JSON.stringify(settings));
-    toast.success("Settings saved successfully");
+    saveSettings(settings);
+    toast.success("Settings saved. They apply to your next question or upload.");
   };
+
+  const handleReset = () => {
+    setSettings(DEFAULT_SETTINGS);
+    saveSettings(DEFAULT_SETTINGS);
+    toast.success("Settings reset to defaults");
+  };
+
+  const { chunkSize, topK, cacheTtl, model, inputGuard, contentFilter, outputGuard, showTrace } = settings;
 
   if (!isMounted) return null;
 
@@ -67,9 +49,12 @@ export default function SettingsPage() {
           <h1 className="text-3xl font-bold">System Settings</h1>
           <p className="text-muted-foreground">Configure global RAG parameters and security guards.</p>
         </div>
-        <Button onClick={handleSave} className="gap-2">
-          <Save className="w-4 h-4" /> Save Changes
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleReset}>Reset</Button>
+          <Button onClick={handleSave} className="gap-2">
+            <Save className="w-4 h-4" /> Save Changes
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -79,12 +64,12 @@ export default function SettingsPage() {
               <Brain className="w-5 h-5 text-primary" />
               <CardTitle>Model Configuration</CardTitle>
             </div>
-            <CardDescription>Select the LLM and generation parameters.</CardDescription>
+            <CardDescription>Choose the Gemini model and how many sources to use.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
              <div className="space-y-4">
                <Label>Primary Model</Label>
-               <Tabs value={model} onValueChange={setModel} className="w-full">
+               <Tabs value={model} onValueChange={(v) => patch({ model: String(v) })} className="w-full">
                  <TabsList className="grid w-full grid-cols-2">
                    <TabsTrigger value="gemini-3-flash">Gemini 3 Flash</TabsTrigger>
                    <TabsTrigger value="gemini-3-pro">Gemini 3 Pro</TabsTrigger>
@@ -95,11 +80,11 @@ export default function SettingsPage() {
              <div className="space-y-4">
                <div className="flex justify-between items-center">
                  <Label>Top K Results</Label>
-                 <span className="text-sm font-mono text-primary font-bold">{topK}</span>
+                 <span className="text-sm font-mono text-primary font-bold">{topK[0]}</span>
                </div>
                <Slider 
                  value={topK} 
-                 onValueChange={setTopK} 
+                 onValueChange={(v) => patch({ topK: asArray(v) })} 
                  min={3} 
                  max={20} 
                  step={1} 
@@ -123,9 +108,9 @@ export default function SettingsPage() {
              <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>Input Guard</Label>
-                  <p className="text-[10px] text-muted-foreground">Prompt injection & SQLi detection.</p>
+                  <p className="text-[10px] text-muted-foreground">Blocks prompt-injection, SQL-injection and path-traversal attempts.</p>
                 </div>
-                <Switch checked={inputGuard} onCheckedChange={setInputGuard} />
+                <Switch checked={inputGuard} onCheckedChange={(v) => patch({ inputGuard: v })} />
              </div>
              <Separator />
              <div className="flex items-center justify-between">
@@ -133,7 +118,7 @@ export default function SettingsPage() {
                   <Label>Content Filter</Label>
                   <p className="text-[10px] text-muted-foreground">Validate retrieved document domain & relevance.</p>
                 </div>
-                <Switch checked={contentFilter} onCheckedChange={setContentFilter} />
+                <Switch checked={contentFilter} onCheckedChange={(v) => patch({ contentFilter: v })} />
              </div>
              <Separator />
              <div className="flex items-center justify-between">
@@ -141,7 +126,7 @@ export default function SettingsPage() {
                   <Label>Output Guard</Label>
                   <p className="text-[10px] text-muted-foreground">PII redaction using Presidio.</p>
                 </div>
-                <Switch checked={outputGuard} onCheckedChange={setOutputGuard} />
+                <Switch checked={outputGuard} onCheckedChange={(v) => patch({ outputGuard: v })} />
              </div>
              <Separator />
              <div className="flex items-center justify-between">
@@ -149,7 +134,7 @@ export default function SettingsPage() {
                   <Label>Show Reasoning Trace</Label>
                   <p className="text-[10px] text-muted-foreground">Display agent&apos;s multi-hop thinking process.</p>
                 </div>
-                <Switch checked={showTrace} onCheckedChange={setShowTrace} />
+                <Switch checked={showTrace} onCheckedChange={(v) => patch({ showTrace: v })} />
              </div>
           </CardContent>
         </Card>
@@ -160,16 +145,17 @@ export default function SettingsPage() {
               <Database className="w-5 h-5 text-blue-500" />
               <CardTitle>Ingestion & Cache</CardTitle>
             </div>
+            <CardDescription>Chunk size applies to new uploads. Cache lifetime applies to new answers.</CardDescription>
           </CardHeader>
           <CardContent className="grid md:grid-cols-2 gap-8">
             <div className="space-y-4">
                <div className="flex justify-between items-center">
                  <Label>Semantic Chunk Size</Label>
-                 <span className="text-sm font-mono text-primary font-bold">{chunkSize} tokens</span>
+                 <span className="text-sm font-mono text-primary font-bold">{chunkSize[0]} tokens</span>
                </div>
                <Slider 
                  value={chunkSize} 
-                 onValueChange={setChunkSize} 
+                 onValueChange={(v) => patch({ chunkSize: asArray(v) })} 
                  min={128} 
                  max={1024} 
                  step={64} 
@@ -178,9 +164,9 @@ export default function SettingsPage() {
             <div className="space-y-4">
                <div className="flex justify-between items-center">
                  <Label>Cache TTL</Label>
-                 <span className="text-sm font-mono text-primary font-bold">3600s</span>
+                 <span className="text-sm font-mono text-primary font-bold">{cacheTtl[0]}s</span>
                </div>
-               <Slider defaultValue={[3600]} min={60} max={86400} step={60} />
+               <Slider value={cacheTtl} onValueChange={(v) => patch({ cacheTtl: asArray(v) })} min={60} max={86400} step={60} />
             </div>
           </CardContent>
         </Card>

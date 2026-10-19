@@ -1,8 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface SearchResult {
   id?: string;
   content: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, string | number | boolean | undefined>;
   score: number;
   dense_score?: number;
   bm25_score?: number;
@@ -16,12 +15,11 @@ export interface TraceStep {
   step: number;
   reasoning?: string;
   action?: string;
-  action_input?: Record<string, any>;
+  action_input?: Record<string, unknown>;
   confidence?: number;
   tool?: string;
   result_summary?: string;
   latency_ms?: number;
-  [key: string]: any;
 }
 
 export interface ReActTrace {
@@ -30,7 +28,6 @@ export interface ReActTrace {
   final_confidence?: number;
   hops: number;
   stopped_reason: string;
-  [key: string]: any;
 }
 
 export interface PipelineTrace {
@@ -38,7 +35,7 @@ export interface PipelineTrace {
   model: string;
   cache_hit: boolean;
   crag_path: string;
-  shard_stats?: Record<string, any> | null;
+  shard_stats?: Record<string, unknown> | null;
 }
 
 export interface Message {
@@ -50,6 +47,7 @@ export interface Message {
   trace?: PipelineTrace;
   reasoningTrace?: TraceStep[];
   finalTrace?: ReActTrace;
+  isError?: boolean;
 }
 
 export interface QueryRequest {
@@ -60,12 +58,46 @@ export interface QueryRequest {
   use_reasoning?: boolean;
 }
 
+/** One server-sent event from /api/v1/query. */
 export interface StreamChunk {
-  type?: string;
+  type?: "thought" | "observation" | "trace";
   token?: string;
   done?: boolean;
   error?: string;
   sources?: SearchResult[];
-  trace?: any;
-  [key: string]: any;
+  trace?: PipelineTrace | ReActTrace;
+  // thought / observation fields
+  step?: number;
+  reasoning?: string;
+  action?: string;
+  action_input?: Record<string, unknown>;
+  confidence?: number;
+  tool?: string;
+  result_summary?: string;
+  latency_ms?: number;
+}
+
+export interface HealthStatus {
+  status: string;
+  chroma?: string;
+  redis?: string;
+  neo4j?: string;
+  model?: string;
+  [key: string]: unknown;
+}
+
+export interface UploadResult {
+  filename: string;
+  status: "indexed" | "duplicate";
+  sharded: boolean;
+  chunks: number;
+  document_id: string;
+}
+
+export interface PageRankStats {
+  total_nodes: number;
+  total_edges: number;
+  density: number;
+  computed: boolean;
+  top: { id: string; score: number; citations: number }[];
 }
