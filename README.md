@@ -1,14 +1,16 @@
-# 🧠 Genesis
+# 🧠 Genesis RAG
 
-> **Enterprise Agentic RAG — Built for Scale, Accuracy, and Trust**
+> **Agentic RAG with hybrid search, sharding, PageRank authority and security guards**
+>
+> Made with ❤️ by **Rohan Malyadri** from **Obscuron X Labs**
 
-An enterprise-grade, high-performance Retrieval-Augmented Generation monorepo powered by **Google Gemini 3**. Genesis features advanced agentic workflows, self-healing retrieval, and multi-layer security — designed to handle millions of documents with citation-accurate answers.
+Genesis RAG is a Retrieval-Augmented Generation platform powered by **Google Gemini**. Upload documents, ask questions, and get answers with clickable citations. It combines hybrid retrieval, corrective (self-checking) retrieval, a sharded vector index, a citation-graph authority boost and multi-layer security guards.
 
 ![Architecture](https://img.shields.io/badge/Architecture-Agentic--RAG-blueviolet)
 ![Model](https://img.shields.io/badge/Model-Gemini--3--Flash-orange)
 ![Backend](https://img.shields.io/badge/Backend-FastAPI-green)
 ![Frontend](https://img.shields.io/badge/Frontend-Next.js%2015-black)
-![License](https://img.shields.io/badge/License-MIT-lightgrey)
+![License](https://img.shields.io/badge/License-All%20rights%20reserved-lightgrey)
 
 ---
 
@@ -46,7 +48,7 @@ graph TD
 
 ### 🗄️ Multi-Tenant Sharding Architecture
 
-Genesis uses a custom consistent hashing sharding layer to scale to 100M+ documents while maintaining low latency.
+Genesis shards documents across 16 ChromaDB collections with consistent hashing on the **document id**, so every chunk of a document lives on one shard and a document filter queries a single shard.
 
 ```mermaid
 graph TD
@@ -132,12 +134,13 @@ graph TD
 
 | Layer | Technology |
 |---|---|
-| Core | Python 3.10+, FastAPI, Next.js 15, TypeScript |
-| AI | Google Gemini 3 (Flash & Pro), LangChain, Sentence-Transformers |
-| Vector DB | ChromaDB (dev) → Qdrant cluster (prod) |
-| Cache / Memory | Redis + RediSearch |
-| UI | Tailwind CSS, shadcn/ui, Framer Motion |
-| DevOps | Docker, Docker Compose |
+| Backend | Python 3.10+, FastAPI, Celery |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS, shadcn/ui, Framer Motion |
+| AI | Google Gemini (with automatic model fallback), Sentence-Transformers (`all-MiniLM-L6-v2`) |
+| Retrieval | ChromaDB (embedded, 16 shards), BM25 sparse index in Redis, Reciprocal Rank Fusion |
+| Cache / memory | Redis (RediSearch vector cache when Redis Stack is used, in-memory similarity cache otherwise) |
+| Security | Input guard, content filter, Microsoft Presidio PII redaction, API key + rate limiting |
+| Optional | Neo4j + OpenAI (graph reasoning agent), Tavily (web search fallback), Opik (tracing) |
 
 ---
 
@@ -145,54 +148,52 @@ graph TD
 
 ```text
 Genesis/
-├── agents/             # Agentic layer (CRAG, adaptive router, tools)
-├── app/                # FastAPI core (lifespan, middleware, models)
-├── chroma_db/          # Persistent ChromaDB storage (local dev)
-├── frontend/           # Next.js 15 app (Tailwind + shadcn/ui)
-├── pipeline/           # Ingestion pipeline
-│   └── extractors/     # PDF, DOCX, HTML, image (OCR) extractors
-├── retrieval/          # Search logic (hybrid retriever, reranker, filters)
-├── routes/             # API endpoints (query SSE, search, health)
-├── security/           # Guard layers (input, content, output + PII)
-├── services/           # Business logic (RAG pipeline, cache, memory)
-└── docker-compose.yml  # Infrastructure (Redis, Chroma, API)
+├── agents/             # Corrective RAG, adaptive router, graph reasoning agent
+├── app/                # FastAPI app: config, models, middleware (API key + rate limit)
+├── frontend/           # Next.js app (chat, sharding, debugger, PageRank, upload, settings)
+├── pipeline/           # Ingestion: extractors, chunker, dedupe, embedder, indexer, PageRank job
+├── retrieval/          # Hybrid retriever, sparse (BM25) index, shard manager, reranker
+├── routes/             # API endpoints: query (SSE), search, ingest, pagerank, health
+├── scripts/dev.sh      # Start/stop Redis + backend + frontend for local development
+├── security/           # Input guard, content filter, output guard (PII)
+├── services/           # LLM wrapper, semantic cache, conversation memory, grader
+├── tools/              # Web search (Tavily)
+├── tests/              # pytest suite (runs offline, Gemini is mocked)
+└── docker-compose.yml  # Redis Stack, Neo4j, API, Celery worker + beat, frontend
 ```
 
 ---
 
 ## 🚀 Quick Start
 
-### 1. Clone & Setup
+### Requirements
+Python 3.10+, Node 20+, Redis (Redis Stack recommended), and a free
+[Gemini API key](https://aistudio.google.com/apikey). System libraries: `libmagic` and (for scanned PDFs / images) `tesseract-ocr`.
+
+### 1. Configure
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/rohanmalyadri/Genesis.git
 cd Genesis
-cp .env.example .env
+cp .env.example .env        # then put your GOOGLE_API_KEY in .env
 ```
 
-### 2. Configure Environment
-Edit `.env` with your `GOOGLE_API_KEY` and any other service credentials.
-
-### 3. Launch with Docker
+### 2a. Run locally (recommended)
 ```bash
-docker-compose up -d
-```
-
-### 4. Local Development
-
-**Backend:**
-```bash
-python -m venv venv
-source venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -e .
-uvicorn app.main:app --port 8005 --reload
+python -m spacy download en_core_web_sm
+scripts/dev.sh start        # Redis, backend on :8000, frontend on :3000
 ```
+Open **http://localhost:3000**. API docs are at http://localhost:8000/docs. Stop everything with `scripts/dev.sh stop`.
 
-**Frontend:**
+### 2b. Run with Docker
 ```bash
-cd frontend
-npm install
-npm run dev
+docker compose up --build
 ```
+Open http://localhost:3000. This also starts Neo4j and the Celery worker + scheduler.
+
+> **Gemini free tier:** the free tier allows only about 20 requests per day per model. A question uses about
+> two Gemini calls, and Genesis falls back to other models automatically, but heavy use needs billing enabled.
 
 ---
 
@@ -200,26 +201,37 @@ npm run dev
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/v1/query` | `POST` | SSE streaming query with full agentic pipeline |
-| `/api/v1/search` | `GET` | Retrieval debug — raw scores across all stages |
-| `/api/v1/ingest` | `POST` | Upload and index a document |
-| `/health/` | `GET` | Service health + dependency status |
+| `/api/v1/query/` | `POST` | Streaming (SSE) answer with sources, trace, and optional multi-hop reasoning |
+| `/api/v1/search/` | `GET` | Retrieval debugger: dense, BM25, RRF and PageRank scores (`rerank=true` adds the LLM reranker) |
+| `/api/v1/ingest/` | `POST` | Upload and index a document (`use_sharding`, `chunk_size`, `skip_graph`) |
+| `/api/v1/pagerank/trigger` | `POST` | Compute PageRank (`inline=true` runs now, otherwise queues a Celery task) |
+| `/api/v1/pagerank/stats` | `GET` | Citation-graph statistics and top authority nodes |
+| `/health/` | `GET` | Per-service status (Neo4j is optional) |
+
+Set `API_KEY` in `.env` to require an `X-API-Key` header on `/api/*` (and `NEXT_PUBLIC_API_KEY` for the frontend).
 
 ---
 
-## 🧪 How to Test
+## 🧪 Testing
 
-### 1. Backend Health
-Verify the infrastructure is up and running:
 ```bash
-curl http://localhost:8005/health/
+pip install -e ".[dev]"
+pytest                      # offline: Gemini and external services are mocked
+cd frontend && npm run lint && npx tsc --noEmit && npm run build
 ```
 
-### 2. End-to-End RAG Test
-1. Open [http://localhost:3000](http://localhost:3000).
-2. Go to the **Upload** page and index a document.
-3. Go to the **Chat** page and ask a question about that document.
-4. Go to **Settings** to toggle security guards or switch between **Gemini 3 Flash** and **Gemini 3 Pro**.
+Manual check: upload a document on **Upload**, ask about it on **Enterprise RAG** (or **Multi-Tenant Sharding**),
+compare retrieval modes on **Debugger**, run **PageRank**, and change models and guards in **Settings**.
+
+---
+
+## 🧭 What is and is not included
+
+- **Included and working:** hybrid retrieval, corrective RAG, sharding, PageRank boosting, semantic cache, conversation memory,
+  PII redaction, input/content guards, multi-hop reasoning (Gemini query decomposition; the graph ReAct agent is used instead when
+  `OPENAI_API_KEY` and Neo4j are available), rate limiting and optional API key.
+- **Optional:** Neo4j knowledge graph, Tavily web search fallback, Opik tracing.
+- **Not implemented yet:** the roadmap items below (async ingestion queue, HyDE, Graph RAG community summaries, domain modules, evaluation harness).
 
 ---
 
@@ -397,11 +409,12 @@ Tech: golden dataset · pytest-benchmark · ROUGE-L · GitHub Actions deployment
 
 ---
 
+---
+
 ## 📜 License
-This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
+
+Copyright (c) 2026 Rohan Malyadri, Obscuron X Labs. All rights reserved. See [LICENSE](LICENSE).
 
 ---
 
-<div align="center">
-  <sub>Built with precision · Genesis — Know More, Faster</sub>
-</div>
+<p align="center">Made with ❤️ by <b>Rohan Malyadri</b> from <b>Obscuron X Labs</b></p>

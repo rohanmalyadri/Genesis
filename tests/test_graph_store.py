@@ -1,5 +1,6 @@
 import pytest
 import asyncio
+pytest.importorskip("testcontainers.neo4j")
 from testcontainers.neo4j import Neo4jContainer
 from retrieval.graph_store import GraphStore
 from app.models import EntityNode, RelationEdge

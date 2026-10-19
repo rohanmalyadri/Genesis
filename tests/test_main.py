@@ -3,12 +3,19 @@ from app.main import app
 
 client = TestClient(app)
 
+
 def test_read_main():
     response = client.get("/")
     assert response.status_code == 200
-    assert "Welcome" in response.json()["message"]
+    body = response.json()
+    assert "Genesis RAG" in body["message"]
+    assert "Obscuron X Labs" in body["made_by"]
 
-def test_health_check():
-    response = client.get("/health")
+
+def test_health_check_reports_every_dependency():
+    response = client.get("/health/")
     assert response.status_code == 200
-    assert response.json()["status"] == "healthy"
+    body = response.json()
+    assert body["name"] == "Genesis RAG"
+    for key in ("status", "chroma", "redis", "neo4j", "model"):
+        assert key in body
