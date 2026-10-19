@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.config import settings
+from app.middleware import ApiGuardMiddleware
 from routes import query, search, health, pagerank
 
 @asynccontextmanager
@@ -22,14 +23,16 @@ app = FastAPI(
     debug=settings.DEBUG
 )
 
-# CORS configuration
+# CORS configuration (credentials are only allowed with an explicit origin list)
+allow_all = "*" in settings.ALLOWED_HOSTS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_HOSTS,
-    allow_credentials=True,
+    allow_origins=["*"] if allow_all else settings.ALLOWED_HOSTS,
+    allow_credentials=not allow_all,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ApiGuardMiddleware)
 
 # Include routers
 app.include_router(health.router, prefix="/health", tags=["Health"])
@@ -41,4 +44,9 @@ app.include_router(pagerank.router, prefix=settings.API_V1_STR + "/pagerank", ta
 
 @app.get("/")
 async def root():
-    return {"message": f"Welcome to {settings.PROJECT_NAME}", "version": "0.1.0"}
+    return {
+        "message": f"Welcome to {settings.PROJECT_NAME}",
+        "version": "0.1.0",
+        "docs": "/docs",
+        "made_by": "Rohan Malyadri, Obscuron X Labs",
+    }
