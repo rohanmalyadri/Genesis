@@ -43,13 +43,16 @@ async def health_check():
         status["redis"] = f"unhealthy: {e}"
         status["status"] = "unhealthy"
 
-    try:
-        from retrieval.graph_store import graph_store
-        await graph_store.connect()
-        ok = await asyncio.wait_for(graph_store.ping(), timeout=3)
-        status["neo4j"] = "healthy" if ok else "offline (optional)"
-    except Exception:
-        status["neo4j"] = "offline (optional)"
+    if not settings.GRAPH_ENABLED:
+        status["neo4j"] = "disabled"
+    else:
+        try:
+            from retrieval.graph_store import graph_store
+            await graph_store.connect()
+            ok = await asyncio.wait_for(graph_store.ping(), timeout=3)
+            status["neo4j"] = "healthy" if ok else "offline (optional)"
+        except Exception:
+            status["neo4j"] = "offline (optional)"
 
     if not settings.GOOGLE_API_KEY:
         status["status"] = "unhealthy"

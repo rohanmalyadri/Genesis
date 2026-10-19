@@ -21,6 +21,12 @@ services:
         generateValue: true    # only the frontend proxy knows it
       - key: SEED_DEMO_DOCS
         value: "true"
+      - key: OUTPUT_GUARD_ENGINE   # light regex redaction: saves ~150 MB vs Presidio + spaCy
+        value: regex
+      - key: EXTRACT_ENTITIES
+        value: "false"
+      - key: GRAPH_ENABLED         # no Neo4j on the free plan
+        value: "false"
       - key: RATE_LIMIT_PER_MINUTE
         value: "20"
       - key: ALLOWED_HOSTS

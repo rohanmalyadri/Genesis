@@ -1,4 +1,3 @@
-from neo4j import AsyncGraphDatabase
 import asyncio
 import logging
 from typing import List, Optional, Dict, Any
@@ -15,7 +14,10 @@ class GraphStore:
 
     async def connect(self):
         """Initialize the Neo4j async driver and connection pool."""
+        if not settings.GRAPH_ENABLED:
+            return
         if not self.driver:
+            from neo4j import AsyncGraphDatabase  # lazy: the driver is only needed with Neo4j
             logger.info(f"Connecting to Neo4j at {settings.NEO4J_URI}")
             self.driver = AsyncGraphDatabase.driver(
                 settings.NEO4J_URI,

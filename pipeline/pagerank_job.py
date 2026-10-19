@@ -1,4 +1,3 @@
-import networkx as nx
 import redis
 import json
 import time
@@ -6,7 +5,6 @@ import argparse
 import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Tuple
-from opik import Opik
 from app.config import settings
 from retrieval.chroma_shard_manager import shard_manager
 import chromadb
@@ -46,6 +44,7 @@ class ChromaDB_client:
                     logger.error(f"Failed to update {label} collection for {doc_id}: {e}")
 
 def run_pagerank_job():
+    import networkx as nx  # lazy: only needed when the job runs
     start_time = time.time()
     logger.info("Starting PageRank computation job...")
 
@@ -143,6 +142,9 @@ def run_pagerank_job():
 
     # Send to OPIK
     try:
+        if not settings.OPIK_API_KEY:
+            return summary
+        from opik import Opik
         opik_client = Opik()
         trace = opik_client.trace(name="pagerank_computation")
         trace.update(

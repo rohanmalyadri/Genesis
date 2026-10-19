@@ -8,10 +8,6 @@ import redis.asyncio as aioredis
 
 from app.config import settings
 from app.models import Chunk, DocumentMetadata
-from .extractors.pdf_extractor import pdf_extractor
-from .extractors.html_extractor import html_extractor
-from .extractors.docx_extractor import docx_extractor
-from .extractors.image_extractor import image_extractor
 from .extractors.text_extractor import text_extractor
 from .preprocessor import preprocessor
 from .deduplicator import deduplicator
@@ -31,13 +27,18 @@ class IngestionPipeline:
 
     def _extract_pages(self, file_path: str, mime_type: str) -> List[str]:
         """Return the document as a list of pages (non-PDF files are one page)."""
+        # extractors import heavy libraries, so they load only when that file type is uploaded
         if mime_type == "application/pdf":
+            from .extractors.pdf_extractor import pdf_extractor
             return pdf_extractor.extract_pages(file_path)
         if mime_type == "text/html":
+            from .extractors.html_extractor import html_extractor
             return [html_extractor.extract(text_extractor.extract(file_path))]
         if mime_type == DOCX_MIME:
+            from .extractors.docx_extractor import docx_extractor
             return [docx_extractor.extract(file_path)]
         if mime_type.startswith("image/"):
+            from .extractors.image_extractor import image_extractor
             return [image_extractor.extract(file_path)]
         return [text_extractor.extract(file_path)]
 
@@ -65,6 +66,8 @@ class IngestionPipeline:
 
     async def _extract_graph(self, document_id: str, chunk_texts: List[str]) -> Optional[Dict[str, int]]:
         """Knowledge-graph extraction. Skipped quietly when Neo4j is unreachable."""
+        if not settings.GRAPH_ENABLED:
+            return None
         from retrieval.graph_store import graph_store
         try:
             await graph_store.connect()

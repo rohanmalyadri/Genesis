@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List
 
+from app.config import settings
 from app.models import Chunk
 from retrieval.chroma_shard_manager import shard_manager
 from retrieval.sparse_index import sparse_index
@@ -20,6 +21,8 @@ class ChromaIndexer:
         """spaCy model for entity tags. Optional: indexing works without it."""
         if not self._nlp_checked:
             self._nlp_checked = True
+            if not settings.EXTRACT_ENTITIES:
+                return None
             try:
                 import spacy
                 self._nlp = spacy.load("en_core_web_sm")

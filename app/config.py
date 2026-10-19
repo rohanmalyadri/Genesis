@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     API_KEY: Optional[str] = None            # if set, every /api request needs X-API-Key
     RATE_LIMIT_PER_MINUTE: int = 120         # per client IP, 0 disables
     MAX_UPLOAD_MB: int = 25
+    # Memory savers for small hosts (set these on Render's free plan)
+    OUTPUT_GUARD_ENGINE: str = "presidio"   # "presidio" (spaCy based) or "regex" (light)
+    EXTRACT_ENTITIES: bool = True            # spaCy entity tags on chunks (needs the spaCy model)
+    GRAPH_ENABLED: bool = True               # Neo4j knowledge graph; False skips it entirely
+    CHUNK_TOKENIZER: str = "approx"         # "approx" (4 chars per token) or "tiktoken" (exact, +40 MB)
     SEED_DEMO_DOCS: bool = False   # index demo_docs/ on startup when the knowledge base is empty
     ALLOWED_UPLOAD_EXTENSIONS: Annotated[list[str], NoDecode] = [
         ".pdf", ".docx", ".html", ".htm", ".txt", ".md", ".py", ".png", ".jpg", ".jpeg"

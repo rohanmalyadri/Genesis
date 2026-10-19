@@ -19,7 +19,7 @@ class Embedder:
         self.model_name = model_name
         self._model = None
         self._backend = None
-        self.batch_size = 64
+        self.batch_size = 8  # small batches keep the ONNX runtime's peak memory low
 
     def _load(self):
         if self._model is not None:

@@ -40,7 +40,7 @@ export function SidebarNav() {
   }, []);
 
   const isHealthy = healthStatus?.status === "healthy";
-  const graphOffline = isHealthy && healthStatus?.neo4j !== "healthy";
+  const graphOffline = isHealthy && healthStatus?.neo4j === "offline (optional)";
   const statusColor = !healthStatus ? "bg-amber-500" : !isHealthy ? "bg-red-500" : graphOffline ? "bg-amber-500" : "bg-green-500";
   const statusText = !healthStatus
     ? "Checking services..."
