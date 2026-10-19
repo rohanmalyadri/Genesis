@@ -1,29 +1,48 @@
+import hashlib
+import json
+import time
+from collections import OrderedDict
+from typing import List, Optional
+
+import numpy as np
 import redis.asyncio as redis
 from redis.commands.search.field import VectorField, TextField
 from redis.commands.search.index_definition import IndexDefinition, IndexType
 from redis.commands.search.query import Query
-import json
-import hashlib
-import numpy as np
-from typing import Optional, List
+
 from app.config import settings
-from app.models import SearchResult, CachedResponse
+from app.models import CachedResponse
 from pipeline.embedder import embedder
 
+LOCAL_CACHE_SIZE = 256
+
+
 class SemanticCache:
+    """Similarity cache for answers.
+
+    Uses a RediSearch HNSW index when Redis Stack is available. Otherwise (or in
+    addition) it keeps a bounded in-memory cache and compares embeddings with numpy,
+    so caching still works on a plain Redis or no Redis at all.
+
+    Entries carry a namespace (retrieval mode, model, filters), so an answer made
+    with one configuration is never served for another.
+    """
+
     def __init__(self):
         self.redis = None
-        self.local_cache = {} # Fallback
         self.is_connected = False
+        self.redisearch_ready = False
         self.index_name = "idx:semantic_cache"
-        self.vector_dim = 384 # For all-MiniLM-L6-v2
-        
+        self.vector_dim = 384  # all-MiniLM-L6-v2
+        # key -> (vector, response, namespace, expires_at)
+        self.local_cache: "OrderedDict[str, tuple]" = OrderedDict()
+
         try:
             self.redis = redis.from_url(settings.REDIS_URL, decode_responses=True)
         except Exception as e:
-            print(f"SemanticCache: Failed to init Redis: {e}. Using in-memory fallback.")
+            print(f"SemanticCache: Failed to init Redis: {e}. Using in-memory cache only.")
 
-    async def _check_conn(self):
+    async def _check_conn(self) -> bool:
         if self.is_connected:
             return True
         if not self.redis:
@@ -31,100 +50,97 @@ class SemanticCache:
         try:
             await self.redis.ping()
             self.is_connected = True
-            return True
         except Exception:
             self.is_connected = False
-            return False
+        return self.is_connected
 
     async def init_index(self):
-        """Initialize RediSearch HNSW index if it doesn't exist."""
-        if not await self._check_conn():
+        """Create the RediSearch index once (no-op when RediSearch is missing)."""
+        if self.redisearch_ready or not await self._check_conn():
             return
-
         try:
             await self.redis.ft(self.index_name).info()
+            self.redisearch_ready = True
+            return
         except Exception:
-            # Index doesn't exist, create it
+            pass
+        try:
             schema = (
                 TextField("query"),
-                VectorField(
-                    "vector", 
-                    "HNSW", 
-                    {
-                        "TYPE": "FLOAT32", 
-                        "DIM": self.vector_dim, 
-                        "DISTANCE_METRIC": "COSINE"
-                    }
-                ),
-                TextField("response")
+                TextField("ns"),
+                VectorField("vector", "HNSW", {"TYPE": "FLOAT32", "DIM": self.vector_dim, "DISTANCE_METRIC": "COSINE"}),
+                TextField("response"),
             )
-            try:
-                await self.redis.ft(self.index_name).create_index(
-                    schema,
-                    definition=IndexDefinition(prefix=["cache:"], index_type=IndexType.HASH)
-                )
-                print(f"SemanticCache: Created RediSearch index {self.index_name}")
-            except Exception as e:
-                print(f"SemanticCache: Failed to create index: {e}")
-
-    async def lookup(self, query: str, threshold: float = 0.90) -> Optional[CachedResponse]:
-        """Perform semantic lookup using KNN."""
-        if not await self._check_conn():
-            return self.local_cache.get(hashlib.sha256(query.encode()).hexdigest())
-
-        try:
-            # Ensure index exists (lazy init)
-            await self.init_index()
-
-            # Embed query
-            query_vector = embedder.model.encode(query, normalize_embeddings=True).astype(np.float32).tobytes()
-
-            # KNN Query
-            # Return top 1 result within distance threshold
-            # Distances in COSINE metric are 1 - similarity. So similarity 0.90 means distance 0.10
-            max_dist = 1 - threshold
-            q = Query(f"*=>[KNN 1 @vector $vec AS score]").sort_by("score").return_fields("response", "score").dialect(2)
-            
-            res = await self.redis.ft(self.index_name).search(q, query_params={"vec": query_vector})
-            
-            if res.total > 0:
-                score = float(res.docs[0].score)
-                if score <= max_dist:
-                    data = json.loads(res.docs[0].response)
-                    return CachedResponse(**data)
-            
+            await self.redis.ft(self.index_name).create_index(
+                schema, definition=IndexDefinition(prefix=["cache:"], index_type=IndexType.HASH)
+            )
+            self.redisearch_ready = True
+            print(f"SemanticCache: Created RediSearch index {self.index_name}")
         except Exception as e:
-            print(f"SemanticCache lookup error: {e}")
-        
+            print(f"SemanticCache: RediSearch unavailable ({e}); using in-memory similarity cache.")
+
+    @staticmethod
+    def _key(query: str, ns: str) -> str:
+        return hashlib.sha256(f"{ns}\x00{query}".encode()).hexdigest()
+
+    async def get(self, query: str, ns: str = "", threshold: float = 0.92) -> Optional[CachedResponse]:
+        try:
+            vec = np.asarray(await embedder.embed_text(query), dtype=np.float32)
+        except Exception as e:
+            print(f"SemanticCache: embedding failed: {e}")
+            return None
+
+        now = time.time()
+        best, best_sim = None, 0.0
+        for key, (v, response, entry_ns, expires) in list(self.local_cache.items()):
+            if expires < now:
+                del self.local_cache[key]
+            elif entry_ns == ns:
+                sim = float(np.dot(vec, v))  # vectors are normalized
+                if sim > best_sim:
+                    best, best_sim = response, sim
+        if best is not None and best_sim >= threshold:
+            return best
+
+        if self.redisearch_ready and await self._check_conn():
+            try:
+                q = (Query("*=>[KNN 5 @vector $vec AS score]")
+                     .sort_by("score").return_fields("response", "score", "ns").dialect(2))
+                res = await self.redis.ft(self.index_name).search(q, query_params={"vec": vec.tobytes()})
+                for doc in res.docs:
+                    if getattr(doc, "ns", "") == ns and 1 - float(doc.score) >= threshold:
+                        return CachedResponse(**json.loads(doc.response))
+            except Exception as e:
+                print(f"SemanticCache lookup error: {e}")
         return None
 
-    async def get(self, query: str, threshold: float = 0.90) -> Optional[CachedResponse]:
-        return await self.lookup(query, threshold)
+    async def set(self, query: str, response: CachedResponse, ns: str = "", ttl: int = 3600):
+        try:
+            vec = np.asarray(await embedder.embed_text(query), dtype=np.float32)
+        except Exception as e:
+            print(f"SemanticCache: embedding failed: {e}")
+            return
 
-    async def store(self, query: str, response: CachedResponse, ttl: int = 3600):
-        """Store query, embedding and response in Redis."""
-        query_hash = hashlib.sha256(query.encode()).hexdigest()
-        
-        if await self._check_conn():
+        key = self._key(query, ns)
+        self.local_cache[key] = (vec, response, ns, time.time() + ttl)
+        self.local_cache.move_to_end(key)
+        while len(self.local_cache) > LOCAL_CACHE_SIZE:
+            self.local_cache.popitem(last=False)
+
+        if self.redisearch_ready and await self._check_conn():
             try:
-                query_vector = embedder.model.encode(query, normalize_embeddings=True).astype(np.float32).tobytes()
-                
-                # Store as HASH for RediSearch
-                await self.redis.hset(
-                    f"cache:{query_hash}",
-                    mapping={
-                        "query": query,
-                        "vector": query_vector,
-                        "response": response.model_dump_json()
-                    }
-                )
-                await self.redis.expire(f"cache:{query_hash}", ttl)
+                await self.redis.hset(f"cache:{key}", mapping={
+                    "query": query, "ns": ns, "vector": vec.tobytes(), "response": response.model_dump_json(),
+                })
+                await self.redis.expire(f"cache:{key}", ttl)
             except Exception as e:
                 print(f"SemanticCache store error: {e}")
-        
-        self.local_cache[query_hash] = response
 
-    async def set(self, query: str, response: CachedResponse, ttl: int = 3600):
-        await self.store(query, response, ttl)
+    # kept for callers that use the older names
+    async def lookup(self, query: str, threshold: float = 0.92):
+        return await self.get(query, threshold=threshold)
+
+    async def store(self, query: str, response: CachedResponse, ttl: int = 3600):
+        await self.set(query, response, ttl=ttl)
 
 semantic_cache = SemanticCache()

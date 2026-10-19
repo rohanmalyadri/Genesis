@@ -1,214 +1,176 @@
-import chromadb
 import asyncio
-import redis.asyncio as redis
-import pickle
-import os
-import time
 import math
-from typing import List, Optional, Dict, Any
+import time
+from contextvars import ContextVar
+from typing import Any, Dict, List, Optional
+
 from app.config import settings
 from app.models import RetrievedDoc, FilterParams, SearchResult
 from retrieval.chroma_shard_manager import shard_manager
+from retrieval.sparse_index import sparse_index
 from pipeline.embedder import embedder
 
-class ChromaHybridRetriever:
-    def __init__(self):
-        self.redis = redis.from_url(settings.REDIS_URL)
-        self.last_shard_stats = {}
+SHARD_TIMEOUT_SECONDS = 15
 
-    async def _query_shard(self, shard_id: int, query_vec: List[float], limit: int, where: dict, filters: Optional[FilterParams]) -> Dict[str, Any]:
-        start_time = time.time()
+_shard_stats: ContextVar[Dict[str, Any]] = ContextVar("shard_stats", default={})
+
+
+def _build_where(filters: Optional[FilterParams]) -> Optional[dict]:
+    """Translate FilterParams into a Chroma where clause (None when empty)."""
+    if not filters:
+        return None
+    conditions = []
+    if filters.source_type:
+        conditions.append({"source_type": filters.source_type})
+    if filters.document_id:
+        conditions.append({"document_id": filters.document_id})
+    if filters.date_gte:
+        conditions.append({"date": {"$gte": filters.date_gte}})
+    if filters.date_lte:
+        conditions.append({"date": {"$lte": filters.date_lte}})
+    if not conditions:
+        return None
+    return conditions[0] if len(conditions) == 1 else {"$and": conditions}
+
+
+def _to_results(raw: dict, extra_meta: Optional[dict] = None) -> List[SearchResult]:
+    docs = []
+    if raw and raw.get("ids") and raw["ids"][0]:
+        for i, doc_id in enumerate(raw["ids"][0]):
+            meta = dict(raw["metadatas"][0][i] or {})
+            if extra_meta:
+                meta.update(extra_meta)
+            docs.append(SearchResult(
+                id=doc_id,
+                content=raw["documents"][0][i],
+                metadata=meta,
+                score=1.0 - raw["distances"][0][i],
+            ))
+    return docs
+
+
+class ChromaHybridRetriever:
+    @property
+    def last_shard_stats(self) -> Dict[str, Any]:
+        """Stats of the most recent search made in the current request context."""
+        return _shard_stats.get()
+
+    async def _query_shard(self, shard_id: int, query_vec: List[float], limit: int, where: Optional[dict]) -> Dict[str, Any]:
+        start = time.time()
         collection = shard_manager.get_collection(shard_id)
-        
-        # We need to run collection.query in a thread since it's blocking
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         results = await loop.run_in_executor(None, lambda: collection.query(
             query_embeddings=[query_vec],
             n_results=limit,
-            where=where or None,
-            include=["documents", "metadatas", "distances"]
+            where=where,
+            include=["documents", "metadatas", "distances"],
         ))
-        
-        latency = (time.time() - start_time) * 1000
-        return {
-            "shard_id": shard_id,
-            "results": results,
-            "latency": latency
-        }
+        return {"shard_id": shard_id, "results": results, "latency": (time.time() - start) * 1000}
 
-    async def _dense_search(self, query_vec: List[float], limit: int, filters: Optional[FilterParams], use_sharding: bool = True) -> List[SearchResult]:
-        where = {}
-        if filters:
-            conditions = []
-            if filters.source_type:
-                conditions.append({"source_type": filters.source_type})
-            
-            # Date range filtering (assuming metadata 'date' is ISO string)
-            if filters.date_gte:
-                conditions.append({"date": {"$gte": filters.date_gte}})
-            if filters.date_lte:
-                conditions.append({"date": {"$lte": filters.date_lte}})
-                
-            if len(conditions) > 1:
-                where = {"$and": conditions}
-            elif len(conditions) == 1:
-                where = conditions[0]
-        
+    async def _dense_search(self, query_vec: List[float], limit: int, filters: Optional[FilterParams], use_sharding: bool = True) -> tuple[List[SearchResult], Dict[str, Any]]:
+        where = _build_where(filters)
+        loop = asyncio.get_running_loop()
+
         if not use_sharding:
-            # Query the single enterprise collection
             collection = shard_manager.get_enterprise_collection()
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(None, lambda: collection.query(
+            if collection.count() == 0:
+                return [], {}
+            raw = await loop.run_in_executor(None, lambda: collection.query(
                 query_embeddings=[query_vec],
                 n_results=limit,
-                where=where or None,
-                include=["documents", "metadatas", "distances"]
+                where=where,
+                include=["documents", "metadatas", "distances"],
             ))
-            
-            all_docs = []
-            if results["ids"] and len(results["ids"]) > 0:
-                for i in range(len(results["ids"][0])):
-                    all_docs.append(SearchResult(
-                        id=results["ids"][0][i],
-                        content=results["documents"][0][i],
-                        metadata=results["metadatas"][0][i],
-                        score=1.0 - results["distances"][0][i]
-                    ))
-            return all_docs
+            return _to_results(raw), {}
 
-        # Determine which shards to query (Original Sharding Logic)
+        # A document's chunks all live on one shard, so a document filter hits one shard
         if filters and filters.document_id:
-            shard_id = await shard_manager.get_shard_for_doc(filters.document_id)
-            target_shards = [shard_id]
+            target_shards = [await shard_manager.get_shard_for_doc(filters.document_id)]
         else:
             target_shards = list(range(settings.NUM_SHARDS))
 
-        # Parallel fan-out
-        shard_tasks = [self._query_shard(sid, query_vec, 20, where, filters) for sid in target_shards]
-        shard_responses = await asyncio.gather(*shard_tasks)
-        
-        all_docs = []
-        shard_stats = {}
-        
-        for resp in shard_responses:
-            sid = resp["shard_id"]
-            results = resp["results"]
-            latency = resp["latency"]
-            
+        async def guarded(sid: int):
+            return await asyncio.wait_for(
+                self._query_shard(sid, query_vec, limit, where), timeout=SHARD_TIMEOUT_SECONDS
+            )
+
+        responses = await asyncio.gather(*[guarded(sid) for sid in target_shards], return_exceptions=True)
+
+        all_docs: List[SearchResult] = []
+        stats: Dict[str, Any] = {}
+        for sid, resp in zip(target_shards, responses):
+            if isinstance(resp, Exception):
+                print(f"HybridRetriever: shard {sid} failed: {resp!r}")
+                stats[str(sid)] = {"hits": 0, "latency_ms": 0, "error": str(resp) or type(resp).__name__}
+                continue
             hits = 0
-            if results["ids"] and len(results["ids"]) > 0:
-                for i in range(len(results["ids"][0])):
-                    metadata = results["metadatas"][0][i]
-                    
-                    # Post-retrieval filtering for entities
-                    # Since 'entities' is stored as a string "Entity1,Entity2"
-                    if filters and filters.entity_names:
-                        doc_entities = metadata.get("entities", "").split(",")
-                        doc_entities = [e.strip() for e in doc_entities if e.strip()]
-                        # Check if any requested entity is in the document
-                        if not any(e in doc_entities for e in filters.entity_names):
-                            continue
+            for doc in _to_results(resp["results"], {"shard_id": sid}):
+                if filters and filters.entity_names:
+                    ents = [e.strip() for e in str(doc.metadata.get("entities", "")).split(",") if e.strip()]
+                    if not any(e in ents for e in filters.entity_names):
+                        continue
+                hits += 1
+                all_docs.append(doc)
+            stats[str(sid)] = {"hits": hits, "latency_ms": resp["latency"]}
 
-                    hits += 1
-                    metadata["shard_id"] = sid
-                    all_docs.append(SearchResult(
-                        id=results["ids"][0][i],
-                        content=results["documents"][0][i],
-                        metadata=metadata,
-                        score=1.0 - results["distances"][0][i]
-                    ))
-            
-            shard_stats[sid] = {"hits": hits, "latency_ms": latency}
-            
-        # Store shard stats in a way that can be retrieved later if needed
-        self.last_shard_stats = shard_stats
-        return all_docs
-
-    async def _sparse_search(self, query: str, limit: int) -> List[SearchResult]:
-        try:
-            bm25_data = await self.redis.get("bm25:corpus")
-            if not bm25_data:
-                return []
-            
-            # Data is pickled as (bm25, list_of_dicts_with_content_and_metadata)
-            bm25, doc_data = pickle.loads(bm25_data)
-            tokenized_query = query.lower().split()
-            scores = bm25.get_scores(tokenized_query)
-            
-            # Sort and get top results
-            import numpy as np
-            top_indices = np.argsort(scores)[::-1][:limit]
-            
-            results = []
-            for i in top_indices:
-                if scores[i] > 0:
-                    results.append(SearchResult(
-                        id=f"sparse_{i}",
-                        content=doc_data[i]["content"],
-                        metadata=doc_data[i]["metadata"],
-                        score=float(scores[i])
-                    ))
-            return results
-        except Exception as e:
-            print(f"Sparse search error: {e}")
-            return []
+        return all_docs, stats
 
     async def search(self, query: str, limit: int = 10, filters: Optional[FilterParams] = None, use_sharding: bool = True) -> List[RetrievedDoc]:
         query_vec = await embedder.embed_text(query)
-        
-        # Get results from both
-        dense_results = await self._dense_search(query_vec, limit=50, filters=filters, use_sharding=use_sharding)
-        sparse_results = await self._sparse_search(query, limit=50)
-        
-        # RRF Merging
+        candidate_limit = max(limit * 4, 20)
+
+        (dense_results, stats), sparse_results = await asyncio.gather(
+            self._dense_search(query_vec, candidate_limit, filters, use_sharding),
+            sparse_index.search(
+                query,
+                limit=candidate_limit,
+                collection="sharded" if use_sharding else "enterprise",
+                source_type=filters.source_type if filters else None,
+                document_id=filters.document_id if filters else None,
+            ),
+        )
+
+        _shard_stats.set(stats)
+
+        # Reciprocal Rank Fusion. Dense and sparse hits share chunk ids, so a chunk
+        # found by both lists gets both contributions.
         k = 60
-        scores = {} # id -> rrf_score
-        docs = {}   # id -> doc
-        
-        for i, res in enumerate(dense_results):
-            doc_id = res.id or f"dense_{i}"
-            scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (k + i + 1)
-            docs[doc_id] = res
-            
-        for i, res in enumerate(sparse_results):
-            doc_id = res.id or f"sparse_{i}"
-            scores[doc_id] = scores.get(doc_id, 0) + 1.0 / (k + i + 1)
-            if doc_id not in docs:
-                docs[doc_id] = res
-                
-        # Sort by RRF score
-        sorted_ids = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
-        
-        # PageRank Boosting
+        rrf: Dict[str, float] = {}
+        docs: Dict[str, SearchResult] = {}
+        dense_scores: Dict[str, float] = {}
+        bm25_scores: Dict[str, float] = {}
+
+        for rank, res in enumerate(dense_results):
+            rrf[res.id] = rrf.get(res.id, 0.0) + 1.0 / (k + rank + 1)
+            docs[res.id] = res
+            dense_scores[res.id] = res.score
+        for rank, res in enumerate(sparse_results):
+            rrf[res.id] = rrf.get(res.id, 0.0) + 1.0 / (k + rank + 1)
+            docs.setdefault(res.id, res)
+            bm25_scores[res.id] = res.score
+
         alpha = settings.PAGERANK_ALPHA
         if filters and filters.authority_mode:
-            alpha *= 2.0 # Step 5: Increase alpha to 0.6 if authority_mode is True
-            
-        fused_results = []
-        for doc_id in sorted_ids[:20]: # Step 1: Process top-20 candidates
+            alpha *= 2.0
+
+        fused: List[RetrievedDoc] = []
+        for doc_id in sorted(rrf, key=lambda x: rrf[x], reverse=True)[:max(limit, 20)]:
             res = docs[doc_id]
-            # Step 1 & 6: Fetch pagerank_score from metadata, default to 0.05 for cold-start
-            pr_score = res.metadata.get("pagerank_score", 0.05)
-            rrf_score = scores[doc_id]
-            
-            # Step 2: Compute boosted score
-            boosted_score = rrf_score * (1 + alpha * math.log(1 + pr_score))
-            
-            fused_results.append(RetrievedDoc(
+            pr_score = float(res.metadata.get("pagerank_score", 0.05))
+            boosted = rrf[doc_id] * (1 + alpha * math.log(1 + pr_score))
+            fused.append(RetrievedDoc(
                 id=doc_id,
                 content=res.content,
                 metadata=res.metadata,
-                score=boosted_score,
-                dense_score=getattr(res, 'score', 0.0),
-                bm25_score=0.0,
-                rrf_score=rrf_score,
+                score=boosted,
+                dense_score=dense_scores.get(doc_id, 0.0),
+                bm25_score=bm25_scores.get(doc_id, 0.0),
+                rrf_score=rrf[doc_id],
                 pagerank_score=pr_score,
-                boosted_score=boosted_score
+                boosted_score=boosted,
             ))
-            
-        # Step 3: Re-sort by boosted_score
-        fused_results.sort(key=lambda x: x.boosted_score, reverse=True)
-        
-        return fused_results[:limit]
+
+        fused.sort(key=lambda x: x.boosted_score, reverse=True)
+        return fused[:limit]
 
 hybrid_retriever = ChromaHybridRetriever()

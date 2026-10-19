@@ -2,7 +2,7 @@ from fastapi import APIRouter, Query
 from typing import List
 from app.models import RetrievedDoc
 from retrieval.hybrid_retriever import hybrid_retriever
-from retrieval.reranker import cohere_reranker
+from retrieval.reranker import reranker
 
 router = APIRouter()
 
@@ -12,7 +12,8 @@ async def debug_search(
     top_k: int = 10,
     use_sharding: bool = Query(True),
     authority_mode: bool = Query(False),
-    use_reasoning: bool = Query(False)
+    use_reasoning: bool = Query(False),
+    rerank: bool = Query(False, description="Also apply the LLM reranker (costs one Gemini call)"),
 ):
     """Debug endpoint to inspect raw retrieval and reranking scores."""
     from retrieval.filters import FilterParams
@@ -42,7 +43,10 @@ async def debug_search(
     raw_results = list(unique_results.values())
     
     # 2. Reranking
-    reranked_results = await cohere_reranker.rerank(q, raw_results, top_n=top_k)
+    if rerank:
+        reranked_results = await reranker.rerank(q, raw_results, top_n=top_k, authority_weight=2.0 if authority_mode else 1.0)
+    else:
+        reranked_results = raw_results[:top_k]
     
     return {
         "query": q,

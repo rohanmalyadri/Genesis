@@ -9,7 +9,7 @@ class ShardHealthService:
         total_docs = 0
         
         # Chroma operations are blocking, run in executor
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         
         def check_shard(sid: int):
             try:
