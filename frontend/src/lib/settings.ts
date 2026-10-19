@@ -10,7 +10,7 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  chunkSize: [512],
+  chunkSize: [256],
   topK: [5],
   cacheTtl: [3600],
   model: "gemini-3-flash",

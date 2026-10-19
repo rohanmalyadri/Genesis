@@ -25,7 +25,7 @@ async def ingest_document(
     file: UploadFile = File(...),
     use_sharding: bool = Form(True),
     skip_graph: bool = Form(False),
-    chunk_size: int = Form(512),
+    chunk_size: int = Form(256),
 ):
     """
     Ingest a document into Genesis RAG.

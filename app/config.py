@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     OUTPUT_GUARD_ENGINE: str = "presidio"   # "presidio" (spaCy based) or "regex" (light)
     EXTRACT_ENTITIES: bool = True            # spaCy entity tags on chunks (needs the spaCy model)
     GRAPH_ENABLED: bool = True               # Neo4j knowledge graph; False skips it entirely
+    PDF_ENGINE: str = "pdfplumber"          # "pdfplumber" (tables as markdown) or "poppler" (pdftotext: much lighter)
     CHUNK_TOKENIZER: str = "approx"         # "approx" (4 chars per token) or "tiktoken" (exact, +40 MB)
     SEED_DEMO_DOCS: bool = False   # index demo_docs/ on startup when the knowledge base is empty
     ALLOWED_UPLOAD_EXTENSIONS: Annotated[list[str], NoDecode] = [
