@@ -1,62 +1,66 @@
-from fastapi import APIRouter, HTTPException
-import chromadb
+import asyncio
+
 import redis.asyncio as redis
+from fastapi import APIRouter, HTTPException
+
 from app.config import settings
+from services.shard_health import shard_health_service
 
 router = APIRouter()
 
-from services.shard_health import shard_health_service
 
 @router.get("/shards")
 async def shard_health():
     return await shard_health_service.get_shards_status()
+
+
 @router.get("/")
 async def health_check():
-    health_status = {
+    """Per-dependency status. Neo4j is optional: without it only graph features are off."""
+    status = {
         "status": "healthy",
         "chroma": "unknown",
         "redis": "unknown",
         "neo4j": "unknown",
-        "model": "healthy"
+        "model": "configured" if settings.GOOGLE_API_KEY else "missing GOOGLE_API_KEY",
+        "name": settings.PROJECT_NAME,
     }
-    
-    # 1. Check Chroma
-    try:
-        from pipeline.indexer import indexer
-        indexer.client.heartbeat()
-        health_status["chroma"] = "healthy"
-    except Exception as e:
-        health_status["chroma"] = f"unhealthy: {str(e)}"
-        health_status["status"] = "unhealthy"
 
-    # 2. Check Redis
+    try:
+        from retrieval.chroma_shard_manager import shard_manager
+        shard_manager.client.heartbeat()
+        status["chroma"] = "healthy"
+    except Exception as e:
+        status["chroma"] = f"unhealthy: {e}"
+        status["status"] = "unhealthy"
+
     try:
         r = redis.from_url(settings.REDIS_URL)
         await r.ping()
-        health_status["redis"] = "healthy"
+        status["redis"] = "healthy"
         await r.aclose()
     except Exception as e:
-        health_status["redis"] = f"unhealthy: {str(e)}"
-        health_status["status"] = "unhealthy"
+        status["redis"] = f"unhealthy: {e}"
+        status["status"] = "unhealthy"
 
-    # 3. Check Neo4j
     try:
         from retrieval.graph_store import graph_store
-        is_graph_healthy = await graph_store.ping()
-        health_status["neo4j"] = "healthy" if is_graph_healthy else "unhealthy: connection failed"
-        if not is_graph_healthy:
-            health_status["status"] = "unhealthy"
-    except Exception as e:
-        health_status["neo4j"] = f"unhealthy: {str(e)}"
-        health_status["status"] = "unhealthy"
+        await graph_store.connect()
+        ok = await asyncio.wait_for(graph_store.ping(), timeout=3)
+        status["neo4j"] = "healthy" if ok else "offline (optional)"
+    except Exception:
+        status["neo4j"] = "offline (optional)"
 
-    return health_status
+    if not settings.GOOGLE_API_KEY:
+        status["status"] = "unhealthy"
+    return status
+
 
 @router.get("/ready")
 async def readiness_check():
     try:
-        from pipeline.indexer import indexer
-        indexer.client.heartbeat()
+        from retrieval.chroma_shard_manager import shard_manager
+        shard_manager.client.heartbeat()
         return {"status": "ready"}
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Service not ready: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"Service not ready: {e}")

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redis:
     image: redis/redis-stack:latest
@@ -10,38 +8,81 @@ services:
       - redis_data:/data
     restart: always
 
+  neo4j:
+    image: neo4j:5
+    environment:
+      - NEO4J_AUTH=neo4j/password
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    restart: always
+
   app:
-    build: 
+    build:
       context: .
       dockerfile: app/Dockerfile
+    env_file:
+      - .env
     environment:
       - REDIS_URL=redis://redis:6379
+      - NEO4J_URI=bolt://neo4j:7687
       - CHROMA_PERSIST_DIRECTORY=/app/chroma_db
       - NUM_SHARDS=16
     depends_on:
       - redis
+      - neo4j
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
       - chroma_data:/app/chroma_db
+    restart: always
 
-  celery-beat:
-    build: 
+  # Runs queued jobs (PageRank) started from the API or by celery-beat
+  celery-worker:
+    build:
       context: .
       dockerfile: app/Dockerfile
-    command: celery -A app.celery beat --loglevel=info --schedule=celery-schedule.db
+    command: celery -A app.celery worker --loglevel=info
+    env_file:
+      - .env
     environment:
       - REDIS_URL=redis://redis:6379
       - CHROMA_PERSIST_DIRECTORY=/app/chroma_db
       - NUM_SHARDS=16
     depends_on:
       - redis
-      - app
     volumes:
-      - .:/app
       - chroma_data:/app/chroma_db
+    restart: always
+
+  # Schedules the PageRank job every 6 hours
+  celery-beat:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    command: celery -A app.celery beat --loglevel=info --schedule=/tmp/celery-schedule.db
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - app
+    restart: always
 
 volumes:
   redis_data:
+  neo4j_data:
   chroma_data:
