@@ -1,38 +1,48 @@
 import hashlib
+from typing import Dict
+
 import redis
 from datasketch import MinHash, MinHashLSH
+
 from app.config import settings
 
+
 class Deduplicator:
+    """Exact (SHA-256, stored in Redis) and near (MinHash LSH) duplicate detection.
+
+    Detection is scoped (e.g. "sharded" / "enterprise") so the same file can be
+    indexed into both systems.
+    """
+
     def __init__(self, threshold: float = 0.85, num_perm: int = 128):
         self.redis = redis.from_url(settings.REDIS_URL)
-        self.lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
+        self.threshold = threshold
         self.num_perm = num_perm
-        self.exact_key = "dedup:hashes"
+        self.lsh: Dict[str, MinHashLSH] = {}
 
-    def is_duplicate(self, text: str, doc_id: str = "new") -> bool:
-        # 1. Exact Deduplication (SHA-256)
+    def is_duplicate(self, text: str, doc_id: str = "new", scope: str = "default") -> bool:
+        exact_key = f"dedup:hashes:{scope}"
         content_hash = hashlib.sha256(text.encode()).hexdigest()
-        if self.redis.sismember(self.exact_key, content_hash):
-            print(f"Deduplicator: Exact duplicate found for {doc_id}")
+        existing = self.redis.hget(exact_key, content_hash)
+        if existing is not None:
+            if existing.decode() == doc_id:
+                return False  # same document re-uploaded: allow re-index (upsert)
+            print(f"Deduplicator: exact duplicate of {existing.decode()} for {doc_id}")
             return True
-            
-        # 2. Near-Deduplication (MinHash LSH)
+
         m = MinHash(num_perm=self.num_perm)
-        # Shingle the text (3-grams)
-        shingles = set(text[i:i+3] for i in range(len(text)-2))
-        for s in shingles:
-            m.update(s.encode('utf8'))
-            
-        # Check LSH
-        results = self.lsh.query(m)
-        if results:
-            print(f"Deduplicator: Near-duplicate found for {doc_id} (matches: {results})")
+        for s in {text[i:i + 3] for i in range(len(text) - 2)}:
+            m.update(s.encode("utf8"))
+
+        lsh = self.lsh.setdefault(scope, MinHashLSH(threshold=self.threshold, num_perm=self.num_perm))
+        matches = [k for k in lsh.query(m) if k != doc_id]
+        if matches:
+            print(f"Deduplicator: near-duplicate of {matches} for {doc_id}")
             return True
-            
-        # If not duplicate, record it
-        self.redis.sadd(self.exact_key, content_hash)
-        self.lsh.insert(doc_id, m)
+
+        self.redis.hset(exact_key, content_hash, doc_id)
+        if doc_id not in lsh.keys:
+            lsh.insert(doc_id, m)
         return False
 
 deduplicator = Deduplicator()

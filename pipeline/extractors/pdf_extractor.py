@@ -6,9 +6,14 @@ from typing import List, Tuple
 
 class PDFExtractor:
     def extract(self, file_path: str) -> str:
-        content = []
+        return "\n".join(self.extract_pages(file_path))
+
+    def extract_pages(self, file_path: str) -> List[str]:
+        """Return one text block per PDF page (tables appended as markdown)."""
+        pages: List[str] = []
         with pdfplumber.open(file_path) as pdf:
             for i, page in enumerate(pdf.pages):
+                content = []
                 page_text = page.extract_text() or ""
                 
                 # 1. Fallback to OCR if text is sparse
@@ -27,7 +32,7 @@ class PDFExtractor:
                         clean_table = [[str(cell).replace("\n", " ") if cell is not None else "" for cell in row] for row in table]
                         md_table = tabulate(clean_table, tablefmt="github", headers="firstrow")
                         content.append(f"\n\n{md_table}\n\n")
-                        
-        return "\n".join(content)
+                pages.append("\n".join(content))
+        return pages
 
 pdf_extractor = PDFExtractor()
