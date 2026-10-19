@@ -1,35 +1,48 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from typing import Annotated, Optional
+import json
 
 class Settings(BaseSettings):
     # API Configuration
-    PROJECT_NAME: str = "Production RAG System"
+    PROJECT_NAME: str = "Genesis RAG"
     API_V1_STR: str = "/api/v1"
     DEBUG: bool = False
 
     # Infrastructure
-    CHROMA_COLLECTION_NAME: str = "production-rag"
     CHROMA_PERSIST_DIRECTORY: str = "chroma_db"
     NUM_SHARDS: int = 16
     REDIS_URL: str = "redis://localhost:6379"
     
     # AI Services
     GOOGLE_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-3-flash-preview" 
+    GEMINI_MODEL: str = "gemini-3-flash-preview"
+    GEMINI_PRO_MODEL: str = "gemini-3.1-pro-preview"
     
     # Observability
     OPIK_API_KEY: Optional[str] = None
     OPIK_HOST: str = "http://localhost:8080"
-    OPIK_PROJECT_NAME: str = "production-rag"
+    OPIK_PROJECT_NAME: str = "genesis-rag"
     
     # RAG Tuning
+    ROUTER_USE_LLM: bool = False   # classify queries with Gemini (costs one extra call per question)
     PAGERANK_ALPHA: float = 0.3
     COHERE_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     TAVILY_API_KEY: Optional[str] = None
 
     # Security
-    ALLOWED_HOSTS: list[str] = ["*"]
+    # Origins allowed by CORS. Accepts "*", a comma separated list or a JSON list.
+    ALLOWED_HOSTS: Annotated[list[str], NoDecode] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    API_KEY: Optional[str] = None            # if set, every /api request needs X-API-Key
+    RATE_LIMIT_PER_MINUTE: int = 120         # per client IP, 0 disables
+    MAX_UPLOAD_MB: int = 25
+    ALLOWED_UPLOAD_EXTENSIONS: Annotated[list[str], NoDecode] = [
+        ".pdf", ".docx", ".html", ".htm", ".txt", ".md", ".py", ".png", ".jpg", ".jpeg"
+    ]
     
     # Graph Database
     NEO4J_URI: str = "bolt://localhost:7687"
@@ -49,6 +62,16 @@ class Settings(BaseSettings):
     REBEL_CACHE_DIR: str = "/tmp/models"
     DOMAIN: str = "standard" # standard | medical | legal
     
+    @field_validator("ALLOWED_HOSTS", "ALLOWED_UPLOAD_EXTENSIONS", mode="before")
+    @classmethod
+    def _split_list(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("["):
+                return json.loads(v)
+            return [item.strip() for item in v.split(",") if item.strip()]
+        return v
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

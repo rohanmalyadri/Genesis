@@ -44,7 +44,7 @@ function SearchPageContent() {
     setHasSearched(true);
     
     try {
-      const measure = async (promise: Promise<{ results: SearchResult[] }>) => {
+      const measure = async (promise: Promise<{ results: SearchResult[]; decomposed_queries?: string[] | null }>) => {
         const start = performance.now();
         const result = await promise;
         return { result, latency: performance.now() - start };
@@ -106,7 +106,7 @@ function SearchPageContent() {
   );
 
   return (
-    <div className="max-w-7xl mx-auto p-8 space-y-8 h-screen overflow-y-auto">
+    <div className="max-w-7xl mx-auto p-8 space-y-8 h-full overflow-y-auto">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold">3-Way RAG Comparison</h1>
         <p className="text-muted-foreground">Compare retrieval accuracy and latency across Enterprise, Multi-Tenant, and Authority Boosted modes.</p>

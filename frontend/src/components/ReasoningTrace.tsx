@@ -113,11 +113,11 @@ export function ReasoningTrace({ steps, finalTrace, isReasoning }: ReasoningTrac
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge variant="outline" className={`text-[10px] font-mono ${getConfidenceColor(step.confidence)}`}>
-                              {(step.confidence * 100).toFixed(0)}% Conf
+                            <Badge variant="outline" className={`text-[10px] font-mono ${getConfidenceColor(step.confidence ?? 0)}`}>
+                              {((step.confidence ?? 0) * 100).toFixed(0)}% Conf
                             </Badge>
                             <code className="text-[10px] bg-muted px-1.5 py-0.5 rounded border border-border/50 text-blue-600 font-mono">
-                              → {step.action}({Object.values(step.action_input)[0] || ""})
+                              → {step.action}({String(Object.values(step.action_input ?? {})[0] ?? "")})
                             </code>
                           </div>
                         </div>
@@ -185,8 +185,8 @@ export function ReasoningTrace({ steps, finalTrace, isReasoning }: ReasoningTrac
                     </div>
                     <div className="flex flex-col items-end">
                       <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-tighter">Final Confidence</span>
-                      <span className={`text-xl font-bold font-mono ${(finalTrace.final_confidence * 100) > 80 ? 'text-green-600' : 'text-primary'}`}>
-                        {(finalTrace.final_confidence * 100).toFixed(0)}%
+                      <span className={`text-xl font-bold font-mono ${((finalTrace.final_confidence ?? 0) * 100) > 80 ? 'text-green-600' : 'text-primary'}`}>
+                        {((finalTrace.final_confidence ?? 0) * 100).toFixed(0)}%
                       </span>
                     </div>
                   </div>
@@ -239,7 +239,8 @@ function GraphMiniMap({ steps }: { steps: TraceStep[] }) {
                 nodes.push(node);
                 nodeMap.set(name, node);
               } else {
-                nodeMap.get(name).val += 1;
+                const existing = nodeMap.get(name);
+                if (existing) existing.val += 1;
               }
             });
          }
@@ -285,10 +286,13 @@ function GraphMiniMap({ steps }: { steps: TraceStep[] }) {
       })
       .attr("stroke", "#fff")
       .attr("stroke-width", 1.5)
-      .call(d3.drag<SVGCircleElement, any>()
-        .on("start", dragstarted)
-        .on("drag", dragged)
-        .on("end", dragended));
+      .call(
+        d3
+          .drag<SVGCircleElement, any>()
+          .on("start", dragstarted)
+          .on("drag", dragged)
+          .on("end", dragended) as unknown as (sel: d3.Selection<d3.BaseType | SVGCircleElement, GraphNode, SVGGElement, unknown>) => void
+      );
 
     const label = svg.append("g")
       .selectAll("text")
@@ -333,7 +337,9 @@ function GraphMiniMap({ steps }: { steps: TraceStep[] }) {
       event.subject.fy = null;
     }
 
-    return () => simulation.stop();
+    return () => {
+      simulation.stop();
+    };
   }, [steps]);
 
   return (

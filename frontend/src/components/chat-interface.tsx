@@ -38,7 +38,7 @@ export function ChatInterface({ messages, onSendMessage, isLoading, onToggleSide
       <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-background/80 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <Bot className="w-6 h-6 text-primary" />
-          <h1 className="text-lg font-semibold">Production RAG Assistant</h1>
+          <h1 className="text-lg font-semibold">Genesis RAG Assistant</h1>
         </div>
         <Button variant="ghost" size="icon" onClick={onToggleSidebar}>
           <PanelRight className="w-5 h-5" />

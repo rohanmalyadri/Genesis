@@ -1,5 +1,4 @@
-version: '3.8'
-
+# Production overrides: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 services:
   app:
     deploy:
@@ -7,17 +6,7 @@ services:
         limits:
           cpus: '4'
           memory: 8G
-    volumes:
-      - chroma_vol_0:/app/chroma_db/shards_0_3
-      - chroma_vol_1:/app/chroma_db/shards_4_7
-      - chroma_vol_2:/app/chroma_db/shards_8_11
-      - chroma_vol_3:/app/chroma_db/shards_12_15
     environment:
-      - NODE_ENV=production
       - LOG_LEVEL=info
-
-volumes:
-  chroma_vol_0:
-  chroma_vol_1:
-  chroma_vol_2:
-  chroma_vol_3:
+      - RATE_LIMIT_PER_MINUTE=60
+      # set API_KEY and a real origin list in .env for production

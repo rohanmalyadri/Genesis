@@ -55,3 +55,4 @@ chroma_data/
 server.log
 check_models.py
 test_import.py
+.run/

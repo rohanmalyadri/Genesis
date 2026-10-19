@@ -1,65 +1,60 @@
-import google.generativeai as genai
 import json
-import asyncio
 from typing import List
-from app.config import settings
+
 from app.models import SearchResult
+from services import llm
+
+RRF_K = 60
+
 
 class GeminiReranker:
-    def __init__(self):
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
-        self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+    """LLM reranker that is blended with the retriever's own (PageRank-boosted) order.
 
-    async def rerank(self, query: str, results: List[SearchResult], top_n: int = 5) -> List[SearchResult]:
-        if not results:
-            return []
-            
-        # Extract documents for reranking
-        docs_text = "\n".join([f"ID {i}: {res.content}" for i, res in enumerate(results)])
-        
+    The final order fuses two rankings with reciprocal rank fusion: the LLM's
+    relevance order and the incoming order (RRF + PageRank authority). Authority
+    mode gives the incoming order a larger weight so authority actually matters.
+    """
+
+    async def _llm_order(self, query: str, results: List[SearchResult]) -> List[int]:
+        docs_text = "\n".join(f"ID {i}: {res.content[:1200]}" for i, res in enumerate(results))
         prompt = f"""Rerank the following documents based on their relevance to the query.
-Return ONLY a JSON array of document IDs in order of relevance, from most to least relevant.
-Format: ["ID 0", "ID 2", ...]
+Return ONLY a JSON array of document numbers, most relevant first, e.g. [2, 0, 1].
 
 Query: {query}
 Documents:
 {docs_text}
 """
-        try:
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: self.model.generate_content(
-                    prompt,
-                    generation_config=genai.types.GenerationConfig(response_mime_type="application/json")
-                )
-            )
-            
-            # Parse the list of IDs
+        raw = json.loads(await llm.generate(prompt, json_mode=True))
+        order: List[int] = []
+        for item in raw if isinstance(raw, list) else []:
             try:
-                ranked_ids = json.loads(response.text)
-                # If it's a list of strings like ["ID 0", "ID 2"]
-                indices = []
-                for rid in ranked_ids:
-                    try:
-                        idx = int(rid.replace("ID ", ""))
-                        indices.append(idx)
-                    except:
-                        continue
-                
-                reranked_results = []
-                for idx in indices[:top_n]:
-                    if idx < len(results):
-                        reranked_results.append(results[idx])
-                
-                return reranked_results
-            except:
-                return results[:top_n]
-                
-        except Exception as e:
-            print(f"GeminiReranker Error: {e}")
+                idx = int(str(item).replace("ID", "").strip())
+            except ValueError:
+                continue
+            if 0 <= idx < len(results) and idx not in order:
+                order.append(idx)
+        return order
+
+    async def rerank(self, query: str, results: List[SearchResult], top_n: int = 5, authority_weight: float = 1.0) -> List[SearchResult]:
+        if not results:
+            return []
+        if len(results) == 1:
             return results[:top_n]
 
-gemini_reranker = GeminiReranker()
-# Alias for backward compatibility if needed, but we'll use gemini_reranker
-cohere_reranker = gemini_reranker 
+        try:
+            llm_order = await self._llm_order(query, results)
+        except Exception as e:
+            print(f"Reranker: LLM rerank failed ({type(e).__name__}: {e}); keeping retrieval order.")
+            return results[:top_n]
+
+        llm_rank = {idx: pos for pos, idx in enumerate(llm_order)}
+        worst = len(results)  # documents the LLM did not mention rank last
+        fused = []
+        for original_pos, res in enumerate(results):
+            score = 1.0 / (RRF_K + llm_rank.get(original_pos, worst) + 1)
+            score += authority_weight / (RRF_K + original_pos + 1)
+            fused.append((score, original_pos, res))
+        fused.sort(key=lambda x: (-x[0], x[1]))
+        return [res for _, _, res in fused[:top_n]]
+
+reranker = GeminiReranker()

@@ -1,8 +1,11 @@
 import re
 import time
-import asyncio
+import unicodedata
 from dataclasses import dataclass
 from typing import Optional
+
+MAX_QUERY_CHARS = 4000
+
 
 @dataclass
 class GuardResult:
@@ -10,40 +13,56 @@ class GuardResult:
     reason: Optional[str] = None
     latency_ms: float = 0.0
 
-# Compiled regex patterns cached at module load
+
+# These are a cheap first filter, not a complete defence. They target phrases that
+# are almost only used to attack the assistant, so normal questions about prompts,
+# SQL or files are not blocked.
 INJECTION_PATTERNS = re.compile(
-    r"(ignore\s+previous|jailbreak|dan\s+mode|system\s+prompt|reveal\s+your|you\s+are\s+now\s+a)",
-    re.IGNORECASE
+    r"(ignore|disregard|forget)\s+(all\s+|any\s+|the\s+)?(previous|prior|above|earlier)\s+(instructions?|prompts?|rules?)"
+    r"|\bjailbreak\b|\bdan\s+mode\b|developer\s+mode\s+enabled"
+    r"|(reveal|print|show|repeat)\s+(me\s+)?(your|the)\s+(hidden\s+|secret\s+)?(system\s+prompt|instructions)"
+    r"|you\s+are\s+now\s+(an?\s+)?(unrestricted|uncensored|jailbroken)",
+    re.IGNORECASE,
 )
 
 SQL_PATTERNS = re.compile(
-    r"(union\s+select|drop\s+table|insert\s+into|delete\s+from|select\s+.*\s+from|xp_cmdshell)",
-    re.IGNORECASE
+    r"\bunion\s+(all\s+)?select\b"
+    r"|;\s*(drop|truncate|delete|insert|update)\s+\w+"
+    r"|'\s*(or|and)\s+'?\d+'?\s*=\s*'?\d+"
+    r"|\bxp_cmdshell\b",
+    re.IGNORECASE,
 )
 
 PATH_TRAVERSAL_PATTERNS = re.compile(
-    r"(\.\./|\.\.\\|/etc/passwd|/windows/win\.ini|/var/log/)",
-    re.IGNORECASE
+    r"(\.\./|\.\.\\|/etc/passwd|/etc/shadow|[\\/]windows[\\/]win\.ini)",
+    re.IGNORECASE,
 )
+
+
+def _normalize(text: str) -> str:
+    """Fold unicode tricks and repeated whitespace so simple obfuscation still matches."""
+    text = unicodedata.normalize("NFKC", text)
+    text = re.sub(r"[​-‏⁠﻿]", "", text)
+    return re.sub(r"\s+", " ", text)
+
 
 class InputGuard:
     async def inspect(self, query: str) -> GuardResult:
-        start_time = time.perf_counter()
-        
-        # All checks are non-blocking regex matches
-        if INJECTION_PATTERNS.search(query):
-            latency = (time.perf_counter() - start_time) * 1000
-            return GuardResult(safe=False, reason="Prompt injection detected", latency_ms=latency)
-            
-        if SQL_PATTERNS.search(query):
-            latency = (time.perf_counter() - start_time) * 1000
-            return GuardResult(safe=False, reason="SQL injection detected", latency_ms=latency)
-            
-        if PATH_TRAVERSAL_PATTERNS.search(query):
-            latency = (time.perf_counter() - start_time) * 1000
-            return GuardResult(safe=False, reason="Path traversal detected", latency_ms=latency)
-            
-        latency = (time.perf_counter() - start_time) * 1000
-        return GuardResult(safe=True, latency_ms=latency)
+        start = time.perf_counter()
+
+        def result(safe: bool, reason: Optional[str] = None) -> GuardResult:
+            return GuardResult(safe=safe, reason=reason, latency_ms=(time.perf_counter() - start) * 1000)
+
+        if len(query) > MAX_QUERY_CHARS:
+            return result(False, f"Query too long (max {MAX_QUERY_CHARS} characters)")
+
+        text = _normalize(query)
+        if INJECTION_PATTERNS.search(text):
+            return result(False, "Prompt injection detected")
+        if SQL_PATTERNS.search(text):
+            return result(False, "SQL injection detected")
+        if PATH_TRAVERSAL_PATTERNS.search(text):
+            return result(False, "Path traversal detected")
+        return result(True)
 
 input_guard = InputGuard()

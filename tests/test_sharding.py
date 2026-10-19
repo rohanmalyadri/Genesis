@@ -89,11 +89,7 @@ async def test_smart_routing():
     shard_id = await shard_manager.get_shard_for_doc(doc_id)
     
     query_vec = [0.1] * 1536
-    results = await hybrid_retriever._dense_search(query_vec, limit=5, filters=filters)
-    
-    # Check shard stats - only 1 shard should have been queried
-    queried_shards = [sid for sid, stats in hybrid_retriever.last_shard_stats.items() if stats.get("latency_ms", 0) > 0]
-    
-    # Depending on implementation, we might still have entries for all shards in the dict, 
-    # but only one should have been actually queried (tasks were only for target_shards)
-    assert len(hybrid_retriever.last_shard_stats) == 1 # In my implementation, I only return stats for target_shards
+    results, stats = await hybrid_retriever._dense_search(query_vec, limit=5, filters=filters)
+
+    # only the shard that owns the document is queried
+    assert list(stats.keys()) == [str(shard_id)]

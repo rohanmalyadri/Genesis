@@ -1,35 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Network, Share2, TrendingUp, Info } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
+import { PageRankStats } from "@/lib/types";
 
 export default function PageRankPage() {
   const [isComputing, setIsComputing] = useState(false);
+  const [stats, setStats] = useState<PageRankStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock data for the citation graph
-  const stats = {
-    totalNodes: 1240,
-    totalEdges: 3420,
-    topCitations: [
-      { id: "https://openai.com/research/", score: 0.892, citations: 45 },
-      { id: "https://arxiv.org/pdf/2301.12345", score: 0.754, citations: 32 },
-      { id: "internal://Section-4.2", score: 0.612, citations: 28 },
-      { id: "https://google.com/deepmind/", score: 0.543, citations: 21 },
-    ]
-  };
+  const loadStats = useCallback(async () => {
+    try {
+      setStats(await api.pageRankStats());
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load stats");
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(loadStats, 0);
+    return () => clearTimeout(t);
+  }, [loadStats]);
 
   const handleCompute = async () => {
     setIsComputing(true);
     try {
-      await api.triggerPageRank();
-      toast.success("PageRank computation queued successfully!");
+      const res = await api.triggerPageRank();
+      toast.success(
+        res.result?.nodes
+          ? `PageRank computed for ${res.result.nodes} nodes`
+          : "No citation links found yet. Upload documents that contain links or references first."
+      );
+      await loadStats();
     } catch (error) {
-      toast.error("Failed to trigger PageRank job.");
-      console.error(error);
+      toast.error(error instanceof Error ? error.message : "Failed to run PageRank.");
     } finally {
       setIsComputing(false);
     }
@@ -54,7 +63,7 @@ export default function PageRankPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Nodes</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalNodes}</div>
+            <div className="text-2xl font-bold">{stats?.total_nodes ?? "-"}</div>
             <p className="text-xs text-muted-foreground mt-1">Unique documents & URLs</p>
           </CardContent>
         </Card>
@@ -63,7 +72,7 @@ export default function PageRankPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Citations</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalEdges}</div>
+            <div className="text-2xl font-bold">{stats?.total_edges ?? "-"}</div>
             <p className="text-xs text-muted-foreground mt-1">Extracted edges</p>
           </CardContent>
         </Card>
@@ -72,7 +81,7 @@ export default function PageRankPage() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Graph Density</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0.0022</div>
+            <div className="text-2xl font-bold">{stats ? stats.density.toFixed(4) : "-"}</div>
             <p className="text-xs text-muted-foreground mt-1">Connectivity ratio</p>
           </CardContent>
         </Card>
@@ -87,7 +96,17 @@ export default function PageRankPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {stats.topCitations.map((item, i) => (
+            {error && (
+              <p className="text-sm text-red-500">Could not reach the API: {error}</p>
+            )}
+            {stats && stats.top.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                {stats.total_nodes === 0
+                  ? "No citation graph yet. Upload documents that contain links, \"see Section X\" references or footnotes."
+                  : "Citations found. Click \"Run PageRank Calculation\" to rank them."}
+              </p>
+            )}
+            {(stats?.top ?? []).map((item, i) => (
               <div key={item.id} className="flex items-center justify-between p-4 bg-muted/30 rounded-2xl border border-transparent hover:border-border transition-all">
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">

@@ -1,8 +1,10 @@
 [project]
-name = "production-rag-system"
+name = "genesis-rag"
 version = "0.1.0"
-description = "A production-ready RAG system with advanced retrieval, agents, and security."
-authors = [{ name = "Rohan Malyadri" }]
+description = "Genesis RAG: an agentic RAG system with hybrid retrieval, sharding, PageRank authority boosting and security guards."
+authors = [{ name = "Rohan Malyadri (Obscuron X Labs)" }]
+requires-python = ">=3.10"
+readme = "README.md"
 dependencies = [
     "fastapi",
     "uvicorn",
@@ -28,6 +30,8 @@ dependencies = [
     "pydantic-settings",
     "python-magic",
     "tabulate",
+    "pillow",
+    "opencv-python-headless",
     "networkx",
     "celery",
     "scipy",
@@ -53,8 +57,8 @@ dev = [
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["app", "routes", "services", "retrieval", "agents", "pipeline", "security", "prompts"]
+[tool.setuptools.packages.find]
+include = ["app*", "routes*", "services*", "retrieval*", "agents*", "pipeline*", "security*", "prompts*", "tools*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

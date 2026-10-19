@@ -4,7 +4,7 @@ import json
 import time
 import argparse
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Tuple
 from opik import Opik
 from app.config import settings
@@ -19,57 +19,31 @@ from app.celery import app as celery_app
 
 @celery_app.task(name="pipeline.pagerank_job.run_pagerank_task")
 def run_pagerank_task():
-    run_pagerank_job()
+    return run_pagerank_job()
 
 class ChromaDB_client:
-    """Wrapper to match the user-requested API pattern for ChromaDB updates."""
+    """Writes PageRank payloads into the Chroma collections that hold a document."""
     @staticmethod
     def set_payload(collection_name: str, payload: dict, points: List[str]):
-        # Connect to redis to expand doc_ids to chunk_ids
         r = redis.from_url(settings.REDIS_URL, decode_responses=True)
-        
-        all_chunk_ids = []
-        for doc_id in points:
-            chunk_set = r.smembers(f"doc_chunks:{doc_id}")
-            if chunk_set:
-                all_chunk_ids.extend(list(chunk_set))
-            else:
-                # Fallback to doc_id itself (useful for older docs or single-point updates)
-                all_chunk_ids.append(doc_id)
 
-        # Filter logic is implied by the 'points' argument (list of IDs)
-        shard_to_ids = {}
-        for cid in all_chunk_ids:
-            # Compute shard ID for the chunk ID
-            sid = shard_manager.get_shard_id(cid)
-            if sid not in shard_to_ids:
-                shard_to_ids[sid] = []
-            shard_to_ids[sid].append(cid)
-            
-        for sid, ids in shard_to_ids.items():
-            try:
-                collection = shard_manager.get_collection(sid)
-                # ChromaDB update requires metadatas list to match ids list
-                metadatas = [payload for _ in ids]
-                # Filter out IDs that might not exist in this shard to avoid errors
-                # (Though consistent hashing should prevent this, it's safer)
-                collection.update(ids=ids, metadatas=metadatas)
-            except Exception as e:
-                logger.error(f"Failed to update shard {sid}: {e}")
-        
-        # Also handle enterprise collection if it exists and contains these docs
-        try:
-            ent_collection = shard_manager.get_enterprise_collection()
-            if ent_collection:
-                # Find which IDs actually exist in the enterprise collection to avoid update errors
-                existing = ent_collection.get(ids=all_chunk_ids, include=[])
-                existing_ids = existing.get("ids", [])
-                
-                if existing_ids:
-                    metadatas = [payload for _ in existing_ids]
-                    ent_collection.update(ids=existing_ids, metadatas=metadatas)
-        except Exception as e:
-            logger.error(f"Failed to update enterprise collection: {e}")
+        for doc_id in points:
+            chunk_ids = list(r.smembers(f"doc_chunks:{doc_id}"))
+            if not chunk_ids:
+                continue  # cited URL / unknown node: nothing indexed to update
+
+            # Sharded copy: every chunk of a document lives on the shard of its document id
+            targets = [
+                (shard_manager.get_collection(shard_manager.get_shard_id(doc_id)), "sharded"),
+                (shard_manager.get_enterprise_collection(), "enterprise"),
+            ]
+            for collection, label in targets:
+                try:
+                    existing = collection.get(ids=chunk_ids, include=[]).get("ids", [])
+                    if existing:
+                        collection.update(ids=existing, metadatas=[payload for _ in existing])
+                except Exception as e:
+                    logger.error(f"Failed to update {label} collection for {doc_id}: {e}")
 
 def run_pagerank_job():
     start_time = time.time()
@@ -89,7 +63,7 @@ def run_pagerank_job():
 
     if not edges:
         logger.warning("No edges found in citation graph. Skipping.")
-        return
+        return {"nodes": 0, "edges": 0}
 
     # Step 2 — Build weighted DiGraph
     G = nx.DiGraph()
@@ -121,7 +95,7 @@ def run_pagerank_job():
         normalized_scores = {}
 
     # Step 5 — Store scores in ChromaDB
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(timezone.utc).isoformat()
     doc_ids = list(normalized_scores.keys())
     
     # Batch updates in groups of 500
@@ -165,6 +139,8 @@ def run_pagerank_job():
     for doc_id, score in top_10:
         logger.info(f"  {doc_id}: {score:.4f}")
 
+    summary = {"nodes": G.number_of_nodes(), "edges": G.number_of_edges(), "seconds": round(duration, 2)}
+
     # Send to OPIK
     try:
         opik_client = Opik()
@@ -180,6 +156,7 @@ def run_pagerank_job():
         logger.info("Successfully logged PageRank metrics to Opik")
     except Exception as e:
         logger.error(f"Failed to send metrics to OPIK: {e}")
+    return summary
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run PageRank computation for document authority.")

@@ -4,6 +4,7 @@ from typing import List
 from datetime import datetime
 from app.config import settings
 from app.models import Message
+from services import llm
 
 class ConversationMemory:
     def __init__(self):
@@ -60,13 +61,9 @@ class ConversationMemory:
         context = await self.get_context(session_id, last_n=3)
         if not context:
             return query
-            
-        import google.generativeai as genai
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
-        model = genai.GenerativeModel(settings.GEMINI_MODEL)
-        
-        context_str = "\n".join([f"{m.role}: {m.content}" for m in context])
-        prompt = f"""Given the following conversation history and a new query, rewrite the query to be a standalone search query that contains all necessary context from the conversation. 
+
+        context_str = "\n".join(f"{m.role}: {m.content}" for m in context)
+        prompt = f"""Given the following conversation history and a new query, rewrite the query to be a standalone search query that contains all necessary context from the conversation.
 If the query is already standalone, return it as is.
 DO NOT answer the query, just rewrite it.
 
@@ -77,10 +74,7 @@ New Query: {query}
 Standalone Query:"""
 
         try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, lambda: model.generate_content(prompt))
-            rewritten = response.text.strip()
+            rewritten = (await llm.generate(prompt)).strip()
             print(f"ConversationMemory: Rewrote '{query}' -> '{rewritten}'")
             return rewritten
         except Exception as e:

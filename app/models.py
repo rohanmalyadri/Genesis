@@ -1,13 +1,20 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 from retrieval.filters import FilterParams
 
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class DocumentMetadata(BaseModel):
     title: str
+    filename: Optional[str] = None
+    document_id: Optional[str] = None
+    page: Optional[int] = None
     source_url: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
     source_type: str # 'pdf' | 'web' | 'doc'
     
 from typing import List, Optional, Dict, Any, Literal
@@ -32,6 +39,12 @@ class QueryRequest(BaseModel):
     stream: bool = Field(True)
     use_sharding: bool = Field(False)
     use_reasoning: bool = Field(False)
+    model: Optional[str] = Field(None, description="'gemini-3-flash' or 'gemini-3-pro'")
+    input_guard: bool = True
+    content_filter: bool = True
+    output_guard: bool = True
+    top_k: int = Field(5, ge=1, le=20)
+    cache_ttl: int = Field(3600, ge=60, le=86400)
 
 class SearchResult(BaseModel):
     content: str
@@ -49,12 +62,12 @@ class RetrievedDoc(SearchResult):
 class Message(BaseModel):
     role: str
     content: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=_utcnow)
 
 class CachedResponse(BaseModel):
     answer: str
     sources: List[SearchResult]
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=_utcnow)
 
 class GradingResult(BaseModel):
     relevance: str # 'correct' | 'ambiguous' | 'incorrect'
@@ -91,7 +104,7 @@ class QueryResponse(BaseModel):
     answer: str
     sources: List[SearchResult]
     conversation_id: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=_utcnow)
 
 class HealthCheck(BaseModel):
     status: str

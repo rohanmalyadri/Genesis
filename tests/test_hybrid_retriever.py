@@ -3,6 +3,14 @@ import math
 from retrieval.hybrid_retriever import ChromaHybridRetriever
 from app.models import SearchResult, FilterParams
 from unittest.mock import AsyncMock, patch
+from retrieval.sparse_index import sparse_index
+
+
+@pytest.fixture(autouse=True)
+def no_embedding_or_sparse(monkeypatch):
+    """These tests exercise fusion/boost math only, so skip the model and Redis."""
+    monkeypatch.setattr("retrieval.hybrid_retriever.embedder.embed_text", AsyncMock(return_value=[0.0] * 384))
+    monkeypatch.setattr(sparse_index, "search", AsyncMock(return_value=[]))
 
 @pytest.mark.asyncio
 async def test_pagerank_boosting_formula():
@@ -21,8 +29,7 @@ async def test_pagerank_boosting_formula():
     ]
     
     # Mocking dependencies
-    retriever._dense_search = AsyncMock(return_value=dense_results)
-    retriever._sparse_search = AsyncMock(return_value=[])
+    retriever._dense_search = AsyncMock(return_value=(dense_results, {}))
     
     # Run standard search (alpha = 0.3)
     results = await retriever.search("test", limit=3)
@@ -55,8 +62,7 @@ async def test_cold_start_handler():
     
     # Doc with no metadata
     dense_results = [SearchResult(id="new_doc", content="fresh", metadata={}, score=0.5)]
-    retriever._dense_search = AsyncMock(return_value=dense_results)
-    retriever._sparse_search = AsyncMock(return_value=[])
+    retriever._dense_search = AsyncMock(return_value=(dense_results, {}))
     
     results = await retriever.search("test", limit=1)
     

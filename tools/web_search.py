@@ -2,6 +2,7 @@ import httpx
 import logging
 from typing import List, Dict, Any
 from app.config import settings
+from app.models import SearchResult
 
 logger = logging.getLogger("WebSearch")
 
@@ -41,3 +42,21 @@ async def web_search(query: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Tavily search failed: {e}")
         return []
+
+
+class WebSearchTool:
+    """Web search returning SearchResult objects, for the corrective RAG agent."""
+
+    async def run(self, query: str) -> List[SearchResult]:
+        results = await web_search(query)
+        return [
+            SearchResult(
+                content=r.get("content") or "",
+                metadata={"source": "web", "url": r.get("url"), "title": r.get("title")},
+                score=float(r.get("score") or 0.0),
+            )
+            for r in results[:3]
+            if r.get("content")
+        ]
+
+web_search_tool = WebSearchTool()
