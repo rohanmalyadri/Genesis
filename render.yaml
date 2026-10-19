@@ -1,0 +1,51 @@
+# Render Blueprint: New > Blueprint in the Render dashboard, pick this repo.
+# Free plans: the API sleeps after 15 minutes idle and its disk is wiped on restart,
+# so demo documents are re-indexed on startup (SEED_DEMO_DOCS).
+services:
+  - type: web
+    name: genesis-rag-api
+    runtime: docker
+    dockerfilePath: ./app/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health/
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false            # paste your Gemini key in the dashboard
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: genesis-rag-redis
+          property: connectionString
+      - key: API_KEY
+        generateValue: true    # only the frontend proxy knows it
+      - key: SEED_DEMO_DOCS
+        value: "true"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "20"
+      - key: ALLOWED_HOSTS
+        value: "*"
+
+  - type: web
+    name: genesis-rag
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    envVars:
+      - key: BACKEND_URL
+        fromService:
+          type: web
+          name: genesis-rag-api
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: BACKEND_API_KEY
+        fromService:
+          type: web
+          name: genesis-rag-api
+          envVarKey: API_KEY
+
+  - type: keyvalue
+    name: genesis-rag-redis
+    plan: free
+    ipAllowList: []            # only reachable from your other Render services
+    maxmemoryPolicy: allkeys-lru

@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -13,7 +14,10 @@ async def lifespan(app: FastAPI):
     from retrieval.chroma_shard_manager import shard_manager
     await semantic_cache.init_index()
     await shard_manager.initialize_shards()
+    from app.seed import seed_demo_docs
+    seed_task = asyncio.create_task(seed_demo_docs())  # runs in the background
     yield
+    seed_task.cancel()
     # Shutdown logic
     print(f"Shutting down {settings.PROJECT_NAME}...")
 

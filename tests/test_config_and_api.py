@@ -107,3 +107,24 @@ def test_upload_passes_options_through(upload_client):
     assert r.status_code == 200 and r.json()["chunks"] == 2
     assert upload_client.seen["use_sharding"] is False
     assert upload_client.seen["chunk_size"] == 256
+
+
+def test_rate_limit_is_per_visitor_when_the_frontend_proxy_forwards_the_ip(monkeypatch):
+    monkeypatch.setattr(settings, "API_KEY", "secret")
+    monkeypatch.setattr(settings, "RATE_LIMIT_PER_MINUTE", 2)
+    client = _guarded_app()
+
+    def hit(ip):
+        return client.get("/api/ping", headers={"X-API-Key": "secret", "X-Genesis-Client-IP": ip}).status_code
+
+    assert [hit("1.1.1.1"), hit("1.1.1.1"), hit("1.1.1.1")] == [200, 200, 429]
+    assert hit("2.2.2.2") == 200  # another visitor is not affected
+
+
+def test_forwarded_ip_is_ignored_without_a_valid_api_key(monkeypatch):
+    monkeypatch.setattr(settings, "API_KEY", None)
+    monkeypatch.setattr(settings, "RATE_LIMIT_PER_MINUTE", 2)
+    client = _guarded_app()
+    # a caller cannot dodge the limit by inventing a new client IP on every request
+    codes = [client.get("/api/ping", headers={"X-Genesis-Client-IP": f"9.9.9.{i}"}).status_code for i in range(4)]
+    assert codes == [200, 200, 429, 429]

@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     API_KEY: Optional[str] = None            # if set, every /api request needs X-API-Key
     RATE_LIMIT_PER_MINUTE: int = 120         # per client IP, 0 disables
     MAX_UPLOAD_MB: int = 25
+    SEED_DEMO_DOCS: bool = False   # index demo_docs/ on startup when the knowledge base is empty
     ALLOWED_UPLOAD_EXTENSIONS: Annotated[list[str], NoDecode] = [
         ".pdf", ".docx", ".html", ".htm", ".txt", ".md", ".py", ".png", ".jpg", ".jpeg"
     ]

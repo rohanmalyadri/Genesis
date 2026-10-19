@@ -74,7 +74,11 @@ class IngestionPipeline:
             logger.warning(f"Skipping graph extraction for {document_id}: {e}")
             return None
 
-        from .relation_extractor import get_relation_extractor
+        try:
+            from .relation_extractor import get_relation_extractor
+        except ImportError as e:  # PyTorch/transformers are an optional extra: pip install ".[graph]"
+            logger.warning(f"Skipping graph extraction for {document_id}: {e}")
+            return None
         extractor = await get_relation_extractor()
         entities, relations = {}, []
         for text in chunk_texts:

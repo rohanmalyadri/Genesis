@@ -10,13 +10,13 @@ dependencies = [
     "uvicorn",
     "chromadb",
     "redis[hiredis]",
-    "sentence-transformers",
     "rank-bm25",
     "google-generativeai",
     "langchain",
     "tiktoken",
     "presidio-analyzer",
     "spacy",
+    "fastembed",
     "datasketch",
     "pdfplumber",
     "pytesseract",
@@ -37,13 +37,18 @@ dependencies = [
     "scipy",
     "numpy",
     "neo4j",
-    "transformers",
-    "torch",
-    "spacy-transformers",
     "openai",
 ]
 
 [project.optional-dependencies]
+# Knowledge-graph extraction (Neo4j + REBEL relation extraction). Heavy: pulls in PyTorch.
+graph = [
+    "torch",
+    "transformers",
+    "spacy-transformers",
+]
+# Use PyTorch sentence-transformers instead of the lighter ONNX embeddings.
+torch-embeddings = ["sentence-transformers"]
 dev = [
     "pytest",
     "pytest-asyncio",
