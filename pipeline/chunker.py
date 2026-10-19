@@ -1,16 +1,27 @@
-import tiktoken
 import ast
 from typing import List
+
+from app.config import settings
 
 class Chunker:
     def __init__(self, max_tokens: int = 512, overlap: int = 64):
         self.max_tokens = max_tokens
         self.overlap = overlap
-        self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        self._tokenizer = None
         self.separators = ["\n\n", "\n", ". ", " "]
 
+    @property
+    def tokenizer(self):
+        """tiktoken encoding, loaded only when CHUNK_TOKENIZER=tiktoken (about 40 MB of RAM)."""
+        if self._tokenizer is None:
+            import tiktoken
+            self._tokenizer = tiktoken.get_encoding("cl100k_base")
+        return self._tokenizer
+
     def _count_tokens(self, text: str) -> int:
-        return len(self.tokenizer.encode(text))
+        if settings.CHUNK_TOKENIZER == "tiktoken":
+            return len(self.tokenizer.encode(text))
+        return len(text) // 4 + 1  # ~4 characters per token for English text
 
     def split_text(self, text: str, file_ext: str = "") -> List[str]:
         # Special handling for code files using AST
@@ -51,10 +62,14 @@ class Chunker:
                 final_chunks.append(current_chunk)
         else:
             # Absolute fallback: split by tokens if no separators left
-            tokens = self.tokenizer.encode(text)
-            for i in range(0, len(tokens), self.max_tokens - self.overlap):
-                chunk_tokens = tokens[i:i + self.max_tokens]
-                final_chunks.append(self.tokenizer.decode(chunk_tokens))
+            if settings.CHUNK_TOKENIZER == "tiktoken":
+                tokens = self.tokenizer.encode(text)
+                for i in range(0, len(tokens), self.max_tokens - self.overlap):
+                    final_chunks.append(self.tokenizer.decode(tokens[i:i + self.max_tokens]))
+            else:
+                size, step = self.max_tokens * 4, (self.max_tokens - self.overlap) * 4
+                for i in range(0, len(text), step):
+                    final_chunks.append(text[i:i + size])
                 
         return final_chunks
 

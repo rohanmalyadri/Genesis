@@ -1,4 +1,7 @@
 import pytest
+pytest.importorskip("torch")
+pytest.importorskip("transformers")
+import pytest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from pipeline.relation_extractor import RelationExtractor

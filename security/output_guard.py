@@ -1,6 +1,8 @@
 import re
 from typing import List, Tuple
 
+from app.config import settings
+
 ENTITIES = ["EMAIL_ADDRESS", "PHONE_NUMBER", "US_SSN", "CREDIT_CARD", "IP_ADDRESS"]
 
 _FALLBACK_PATTERNS = {
@@ -23,6 +25,8 @@ class OutputGuard:
     def analyzer(self):
         if not self._loaded:
             self._loaded = True
+            if settings.OUTPUT_GUARD_ENGINE != "presidio":
+                return None  # light regex redaction
             try:
                 from presidio_analyzer import AnalyzerEngine
                 from presidio_analyzer.nlp_engine import NlpEngineProvider

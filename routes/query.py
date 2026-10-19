@@ -6,7 +6,7 @@ from typing import AsyncGenerator, List
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
-from opik import track
+from app.tracing import track
 
 from app.config import settings
 from app.models import (
@@ -26,7 +26,6 @@ from retrieval.reranker import reranker
 from retrieval.filters import FilterParams
 from agents.adaptive_router import adaptive_router
 from agents.crag import crag_agent
-from agents.graph_reasoner import graph_reasoner
 
 router = APIRouter()
 
@@ -77,7 +76,7 @@ _reasoner_cache = {"checked_at": 0.0, "ok": False}
 
 async def _graph_reasoner_available() -> bool:
     """The ReAct graph agent needs an OpenAI key and a reachable Neo4j (cached 30s)."""
-    if not settings.OPENAI_API_KEY:
+    if not settings.OPENAI_API_KEY or not settings.GRAPH_ENABLED:
         return False
     if time.time() - _reasoner_cache["checked_at"] < 30:
         return _reasoner_cache["ok"]
@@ -206,6 +205,7 @@ class RAGStreamer:
             if await _graph_reasoner_available():
                 used_graph_agent = True
                 yield _sse({"type": "thought", "reasoning": "Engaging the graph reasoning agent...", "step": 0})
+                from agents.graph_reasoner import graph_reasoner  # heavy imports only when used
                 async for event in graph_reasoner.run(rewritten_query, req.session_id):
                     if event["type"] in ("thought", "observation"):
                         yield _sse(event)

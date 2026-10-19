@@ -128,3 +128,32 @@ async def test_grader_trusts_retrieval_when_llm_is_unavailable(monkeypatch):
     monkeypatch.setattr(llm, "generate", AsyncMock(side_effect=llm.gexc.ResourceExhausted("quota")))
     grades = await document_grader.grade_batch("q", ["a", "b"])
     assert [g.relevance for g in grades] == ["correct", "correct"]
+
+
+def test_chunker_splits_long_text_without_tiktoken():
+    from pipeline.chunker import Chunker
+    text = "\n\n".join(f"Paragraph {i}. " + "word " * 120 for i in range(12))
+    chunks = Chunker(max_tokens=128, overlap=16).split_text(text)
+    assert len(chunks) > 3
+    assert all(len(c) <= 128 * 4 + 40 for c in chunks)
+    assert "Paragraph 11" in "".join(chunks)
+
+
+def test_deduplicator_near_duplicate_signatures():
+    import numpy as np
+    from pipeline import deduplicator as mod
+    d = mod.Deduplicator.__new__(mod.Deduplicator)
+    rng = np.random.default_rng(1)
+    d.num_perm = 128
+    d._a = rng.integers(1, mod._PRIME, size=128, dtype=np.uint64)
+    d._b = rng.integers(0, mod._PRIME, size=128, dtype=np.uint64)
+    import random
+    words = [w for w in "alpha river stone cloud engine garden window silver paper violin market planet forest ocean bridge candle".split()]
+    r = random.Random(3)
+    base = " ".join(r.choice(words) + str(r.randint(0, 999)) for _ in range(1500))
+    near = base + " one extra closing sentence"
+    r2 = random.Random(99)
+    import string
+    other = "".join(r2.choice(string.ascii_lowercase + " ") for _ in range(12000))
+    assert float(np.mean(d._signature(base) == d._signature(near))) > 0.85
+    assert float(np.mean(d._signature(base) == d._signature(other))) < 0.2

@@ -180,7 +180,7 @@ cp .env.example .env        # then put your GOOGLE_API_KEY in .env
 ### 2a. Run locally (recommended)
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e .
+pip install -e .            # light install: embeddings run on the ONNX runtime, no PyTorch
 python -m spacy download en_core_web_sm
 scripts/dev.sh start        # Redis, backend on :8000, frontend on :3000
 ```
@@ -192,8 +192,29 @@ docker compose up --build
 ```
 Open http://localhost:3000. This also starts Neo4j and the Celery worker + scheduler.
 
+Optional extras: `pip install -e ".[graph]"` (Neo4j knowledge-graph extraction, pulls in PyTorch) and
+`pip install -e ".[torch-embeddings]"` (use sentence-transformers instead of ONNX; same vectors, about 1 GB more RAM).
+
 > **Gemini free tier:** the free tier allows only about 20 requests per day per model. A question uses about
 > two Gemini calls, and Genesis falls back to other models automatically, but heavy use needs billing enabled.
+
+---
+
+## ☁️ Deploy to Render (free plans)
+
+`render.yaml` describes the whole stack: the **API** (Docker), the **frontend** (Docker, Next.js) and a **Key Value** (Redis) instance.
+
+1. In Render choose **New > Blueprint**, select this repository, and enter your `GOOGLE_API_KEY` when asked.
+2. Wait for the three services to build. The frontend URL (`https://genesis-rag.onrender.com`, or similar) is your site.
+
+How it fits together:
+- The browser only talks to the frontend. The frontend's server-side proxy (`/api/proxy/*`) forwards to the API and adds a
+  secret `API_KEY`, so the API refuses direct calls and no URL or key reaches the browser.
+- Embeddings use the ONNX runtime (the same MiniLM vectors as PyTorch), which keeps the API under Render's 512 MB free limit.
+- Free-plan limits: the services sleep after 15 minutes without traffic (the first request takes about a minute), and the
+  API's disk is wiped on restart. `SEED_DEMO_DOCS=true` re-indexes the sample files in `demo_docs/` on every start; documents
+  you upload are lost on restart. A paid plan with a persistent disk keeps them.
+- Set `RATE_LIMIT_PER_MINUTE` low (the blueprint uses 20 per visitor) because every question uses your Gemini quota.
 
 ---
 

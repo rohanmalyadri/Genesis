@@ -1,10 +1,10 @@
 import pytesseract
 from PIL import Image, ImageOps, ImageFilter
-import cv2
 import numpy as np
 
 class ImageExtractor:
     def extract(self, file_path: str) -> str:
+        import cv2  # lazy: OpenCV is only needed for image uploads
         # 1. Load image
         img = cv2.imread(file_path)
         
