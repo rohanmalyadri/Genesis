@@ -25,7 +25,7 @@ class ChromaHybridRetriever:
         results = await loop.run_in_executor(None, lambda: collection.query(
             query_embeddings=[query_vec],
             n_results=limit,
-            where=where,
+            where=where or None,
             include=["documents", "metadatas", "distances"]
         ))
         
@@ -61,7 +61,7 @@ class ChromaHybridRetriever:
             results = await loop.run_in_executor(None, lambda: collection.query(
                 query_embeddings=[query_vec],
                 n_results=limit,
-                where=where,
+                where=where or None,
                 include=["documents", "metadatas", "distances"]
             ))
             
