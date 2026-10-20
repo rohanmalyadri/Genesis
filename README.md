@@ -1,16 +1,44 @@
+<div align="center">
+
 # 🧠 Genesis RAG
 
-> **Agentic RAG with hybrid search, sharding, PageRank authority and security guards**
->
-> Made with ❤️ by **Rohan Malyadri** from **Obscuron X Labs**
+**A retrieval platform you can inspect.** It finds evidence two ways, checks it, ranks it, protects it, and shows its work.
 
-Genesis RAG is a Retrieval-Augmented Generation platform powered by **Google Gemini**. Upload documents, ask questions, and get answers with clickable citations. It combines hybrid retrieval, corrective (self-checking) retrieval, a sharded vector index, a citation-graph authority boost and multi-layer security guards.
+[![Watch the product film](docs/film-thumbnail.jpg)](https://youtu.be/f4Ia8OKZeOQ)
+
+▶️ **[Watch the product film on YouTube](https://youtu.be/f4Ia8OKZeOQ)** · 🌐 **[Try the live app](https://genesis-rag.onrender.com/)**
 
 ![Architecture](https://img.shields.io/badge/Architecture-Agentic--RAG-blueviolet)
-![Model](https://img.shields.io/badge/Model-Gemini--3--Flash-orange)
+![Model](https://img.shields.io/badge/Model-Gemini-orange)
 ![Backend](https://img.shields.io/badge/Backend-FastAPI-green)
-![Frontend](https://img.shields.io/badge/Frontend-Next.js%2015-black)
-![License](https://img.shields.io/badge/License-All%20rights%20reserved-lightgrey)
+![Frontend](https://img.shields.io/badge/Frontend-Next.js-black)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Made with ❤️ by **Rohan Malyadri** from **Obscuron X Labs**
+
+</div>
+
+---
+
+## 🎬 The film
+
+Genesis RAG answers questions about your documents and shows exactly where every answer comes from. The film walks through the real app, using a real arXiv paper, in this order:
+
+| Scene | What you see |
+|---|---|
+| **Upload and indexing** | Text is extracted, split into passages, embedded, and indexed two ways: by meaning and by keywords (43 passages for the demo paper). |
+| **Ask a question** | The answer streams in with numbered citations that point to real passages and pages. |
+| **Hybrid retrieval** | Dense search (meaning) and BM25 (exact terms) rank passages differently; Reciprocal Rank Fusion (RRF) merges the two lists. |
+| **Retrieval Debugger** | Dense, fused, authority and final boosted scores for every passage, across three retrieval modes. |
+| **Corrective RAG** | Retrieved passages are graded correct, ambiguous or incorrect, and only good ones reach the model. |
+| **Multi-hop reasoning** | A two-part question is split into sub-questions, searched separately, and merged. |
+| **Memory and semantic cache** | Follow-ups use earlier turns; a repeated question is answered instantly from the cache. |
+| **Sharding** | Documents are hashed to one of 16 ChromaDB shards; queries fan out in parallel and merge with RRF. |
+| **PageRank authority** | A citation graph gives well-cited sources a gentle, log-dampened boost. |
+| **Security guards** | Prompt injection is stopped before the model; PII is redacted on the way out. |
+| **Settings** | Pick the model, number of passages, which guards are on, and whether to show reasoning. |
+
+The film is honest about its limits: Corrective RAG improves the odds of a grounded answer but does not guarantee one, no guard is perfect, and the Neo4j knowledge graph, Tavily web search and Opik tracing are optional and were not part of the demo deployment.
 
 ---
 
@@ -105,28 +133,28 @@ graph TD
 
 ## 🌟 Key Features
 
-### 🧠 Agentic Intelligence
-- **Corrective RAG (CRAG)**: Self-correcting retrieval loop that grades document relevance and triggers Tavily web search fallback for missing information
-- **Adaptive Router**: Zero-shot query classification to dynamically adjust retrieval parameters (Top-K, prompting strategy) based on user intent
-- **Query Decomposition**: Automatically breaks complex, multi-hop questions into precise sub-queries for higher recall
-- **Forced Reasoning Mode**: Toggleable agentic substrate available across all architectures (Enterprise, Sharding, PageRank) to force multi-hop decomposition and graph reasoning.
+### 🧠 Agentic intelligence
+- **Corrective RAG (CRAG)**: grades retrieved passages and can decompose the question or fall back to Tavily web search when a key is configured
+- **Adaptive Router**: zero-shot query classification that adjusts retrieval parameters (Top-K, prompting) to the user's intent
+- **Query decomposition and multi-hop reasoning**: splits multi-part questions into sub-queries and merges the evidence
+- **Forced Reasoning Mode**: toggle that forces multi-hop decomposition across all architectures (Enterprise, Sharding, PageRank)
 
-### ⚡ Performance & Scale
-- **Hybrid Retrieval**: Combined Dense (HNSW) and Sparse (BM25) search fused with Reciprocal Rank Fusion (RRF)
-- **PageRank Authority Boosting**: Offline graph-based scoring (networkx) integrated into retrieval via a dampened log-boost formula.
-- **Authority Mode**: Query-time ranking override to prioritize highly-cited authoritative documents.
-- **Semantic Cache**: Sub-millisecond similarity caching via RediSearch vector indexing
-- **Context Awareness**: Redis-backed conversation memory with intelligent query rewriting for multi-turn dialogues
+### ⚡ Retrieval and scale
+- **Hybrid retrieval**: dense (HNSW) plus sparse (BM25) search fused with Reciprocal Rank Fusion
+- **Multi-tenant sharding**: 16 ChromaDB shards with MD5 consistent hashing and Redis O(1) shard lookup
+- **PageRank authority boosting**: offline citation-graph scores (networkx) applied with a dampened log-boost, plus an Authority Mode toggle
+- **Semantic cache**: similarity caching via RediSearch vectors (in-memory fallback)
+- **Context awareness**: Redis-backed conversation memory with query rewriting for multi-turn dialogue
 
-### 🛡️ Enterprise Security
-- **Input Guard**: Ultra-fast (<1ms) regex-based protection against prompt injection, SQLi, and path traversal
-- **Content Filter**: Domain allowlisting and similarity-based relevance validation for retrieved context
-- **Output Guard**: Automated PII redaction via Microsoft Presidio (Email, SSN, Phone, CC numbers)
+### 🛡️ Security
+- **Input Guard**: fast regex protection against prompt injection, SQLi and path traversal
+- **Content Filter**: domain allowlisting and similarity-based relevance checks
+- **Output Guard**: PII redaction with Microsoft Presidio (email, SSN, phone, credit card)
+- **API key and rate limiting** on `/api/*`
 
 ### 📊 Observability
-- **Opik Integration**: Full pipeline tracing with latency metrics and model traces at every step
-- **Retrieval Debugger**: Dedicated UI for inspecting raw scores across Dense, Sparse, RRF, and PageRank stages, including real-time visualization of authority boosting.
-- **Agentic Comparison**: Comparative benchmarking in the Debugger to measure retrieval performance with and without Multi-Hop Reasoning enabled.
+- **Retrieval Debugger**: inspect Dense, Sparse, RRF and PageRank scores, and compare runs with and without multi-hop reasoning
+- **Opik integration** (optional): pipeline tracing and latency metrics
 
 ---
 
@@ -256,186 +284,19 @@ compare retrieval modes on **Debugger**, run **PageRank**, and change models and
 
 ---
 
-## 🔭 Future Work
+## 🔭 Roadmap
 
-Genesis is architected for extension. The roadmap below covers the full spectrum of production capabilities — from million-document scale to domain-specific intelligence for legal and medical corpora.
+Completed: distributed multi-tenant sharding, PageRank authority pipeline, multi-hop reasoning agent.
 
----
-
-### 📦 Scale — Handling Millions of Documents
-
-The base system is designed to grow. These upgrades unlock true enterprise scale.
-
-#### ✅ Distributed Multi-Tenant Sharding [COMPLETED]
-Implemented a consistent hashing layer using MD5 to partition documents across 16 ChromaDB shards. Optimized with Redis-backed O(1) shard lookup for targeted routing and parallel fan-out retrieval with RRF merging.
-
-#### Async Ingestion Queue
-Replace synchronous ingestion with a Celery + Redis Streams task queue. Priority lanes handle urgent documents (contracts, alerts) separately from bulk archive ingestion. Kubernetes HPA auto-scales worker pods based on queue depth. A dead-letter queue with retry + alerting handles extraction failures.
-```
-Tech: Celery · Redis Streams · Kubernetes HPA · Flower monitoring
-```
-
-#### HyDE — Hypothetical Document Embeddings
-Before embedding a query, prompt Gemini to generate a short hypothetical "ideal answer document". Embed both the query and the hypothetical doc, then use their averaged vector as the search key. Consistently improves recall by 15–30% on sparse or ambiguous queries at minimal cost.
-```
-Tech: Gemini Flash · dual embedding · vector averaging · services/hyde.py
-```
-
-#### ✅ PageRank-Weighted Authority Pipeline [COMPLETED]
-Implemented a document authority system using the PageRank algorithm. During ingestion, a `CitationExtractor` captures hyperlinks and cross-references into a Redis graph. A scheduled job (Celery) computes weighted PageRank scores, normalizes them, and persists them into ChromaDB payloads. Retrieval is enhanced with a dampened log-boost formula: `boosted_score = rrf * (1 + alpha * log(1 + pr))`. Includes an "Authority Mode" toggle for high-credibility requirements.
+Planned:
+- **Scale:** async ingestion queue (Celery + Redis Streams), HyDE query expansion
+- **Graph RAG:** knowledge-graph extraction, community summarization
+- **Legal:** citation parser, clause-level chunking, privilege detection, regulatory change tracker
+- **Medical:** UMLS normalization, PICO extraction, drug interaction graph, HIPAA compliance layer
+- **Agentic:** long-context deep-read mode, tool-use planning agent, proactive research agent, feedback learning loop
 
 ---
 
-### 🕸️ Graph RAG — Relational Knowledge Reasoning
+## 📄 License
 
-Pure vector retrieval cannot answer relational questions. Graph RAG adds a second reasoning substrate on top of the vector index.
-
-#### Knowledge Graph Extraction
-During ingestion, run `rebel-large` (HuggingFace) to extract entity–relation–entity triples from every chunk. Store `(entity1, relation, entity2, source_doc_id)` in Neo4j. At query time, extract query entities, traverse up to 2 hops, and inject the relevant subgraph as structured context alongside vector results.
-```
-Tech: rebel-large · Neo4j · spaCy NER · agents/graph_reasoner.py
-```
-
-#### Community Summarization (Microsoft GraphRAG style)
-Cluster the knowledge graph into topic communities using the Louvain algorithm. For each community of ≥5 nodes, generate a Gemini 3 summary. Store summaries as high-level chunks. For broad thematic queries, retrieve community summaries first, then drill into specific evidence chunks — enabling global + local reasoning in a single pass.
-```
-Tech: Louvain clustering · Gemini 3 community summaries · hierarchical retrieval · python-louvain
-```
-
-#### ✅ Multi-Hop Reasoning Agent
-For questions requiring chained inference, implement a ReAct loop over the knowledge graph: *Thought → retrieve nodes → Act → traverse relations → Observe → synthesize*. Each hop enriches the context window. Stops when confidence exceeds 0.85 or after a configurable max-hop limit.
-```
-Tech: LangGraph ReAct · Neo4j traversal · confidence scoring · agents/multi_hop.py
-```
-
----
-
-### ⚖️ Domain: Legal
-
-Legal corpora have unique structural, semantic, and compliance requirements that generic RAG ignores.
-
-#### Legal Citation Parser
-Extract and resolve Bluebook citations (case law, statutes, regulations) using regex + LLM fallback. Resolve each citation against CourtListener or a local case-law index. Store resolved citations as typed graph edges in Neo4j — enabling "find all cases that cite X" queries.
-```
-Tech: Bluebook regex · CourtListener API · citation graph · pipeline/legal_extractor.py
-```
-
-#### Clause-Level Chunking
-Legal meaning lives at the clause level, not the paragraph level. A legal-aware chunker detects numbered sections and ALL-CAPS headings to split at clause boundaries, then tags each chunk with its clause type: indemnification, termination, IP ownership, liability cap. Clause types are stored as Qdrant payload filters for precision retrieval.
-```
-Tech: clause boundary detection · clause taxonomy · legal-bert · pipeline/legal_chunker.py
-```
-
-#### Privilege Detection & Redaction
-Before indexing: (1) classify privilege status (privileged / non-privileged / needs-review) with a fine-tuned classifier, (2) redact attorney names, bar numbers, and client identifiers in privileged sections, (3) store privilege metadata in Qdrant payload, (4) filter privileged chunks at query time unless `privilege_access=True` is set on the user role.
-```
-Tech: privilege classifier · presidio redaction · role-based filtering · access control middleware
-```
-
-#### Regulatory Change Tracker
-A daily scheduled job re-ingests monitored regulatory URLs (SEC EDGAR, Federal Register, EU legislation). Semantic diff compares new vs. old versions per section using embedding cosine distance. Sections with distance > 0.15 trigger an auto-generated change summary and push notification. Full version history is stored in PostgreSQL with an audit trail.
-```
-Tech: semantic diff · Celery beat · change notifications · PostgreSQL version history
-```
-
----
-
-### 🏥 Domain: Medical
-
-Medical RAG requires ontology alignment, structured evidence extraction, active safety intelligence, and strict compliance.
-
-#### UMLS Concept Normalization
-During ingestion, run QuickUMLS or scispaCy to map medical entities to UMLS Concept Unique Identifiers (CUIs). At query time, expand the query with UMLS synonyms — `"heart attack"` → `"myocardial infarction"`, `"MI"`, `"AMI"`. Dramatically improves recall across heterogeneous terminology systems.
-```
-Tech: QuickUMLS · scispaCy · UMLS CUI mapping · query synonym expansion
-```
-
-#### PICO Framework Extraction
-Parse clinical documents using the PICO framework (Population, Intervention, Comparison, Outcome). A Gemini 3 extractor with few-shot prompts outputs structured PICO JSON per study. PICO fields are stored as Qdrant payload for structured queries: *"Find RCTs on [population] treated with [intervention] showing [outcome]"*.
-```
-Tech: PICO extractor · few-shot Gemini 3 · structured payload · clinical NLP
-```
-
-#### Drug Interaction Knowledge Graph
-Extract drug names (DrugBank NER) and interaction mentions during ingestion. Build a pharmacovigilance graph in Neo4j: `(Drug)-[INTERACTS_WITH {severity, mechanism}]->(Drug)`. At query time, if a drug combination is detected in the query, proactively traverse the interaction graph and prepend a structured safety warning before generation — without the user having to ask.
-```
-Tech: DrugBank NER · Neo4j pharmacovigilance · safety pre-check · agents/drug_safety.py
-```
-
-#### HIPAA Compliance Layer
-A mandatory compliance wrapper before any medical deployment: (1) PHI detection with presidio medical extensions (MRNs, dates of birth, provider names), (2) de-identification with consistent pseudonymization so cross-document reasoning is preserved, (3) tamper-proof audit log (PostgreSQL + hash chain) of every query and every PHI field accessed.
-```
-Tech: presidio medical · pseudonymization · audit log · tamper-proof hash chain
-```
-
----
-
-### 🤖 Agentic — Advanced Autonomous Capabilities
-
-#### Long-Context Deep-Read Mode
-When CRAG grades retrieval as ambiguous AND the source document fits within a 128k context window (Gemini 1.5 / Claude 3.5), bypass chunked retrieval entirely and load the full document. An LRU cache keeps hot documents in memory, making subsequent queries on the same document near-instant.
-```
-Tech: Gemini 1.5 Pro · full-doc context mode · LRU doc cache · agents/deep_reader.py
-```
-
-#### LangGraph Tool-Use Planning Agent
-Upgrade the adaptive router to a full planning agent. The agent has a typed tool registry: `vector_search`, `web_search`, `calculator`, `code_executor`, `sql_query`, `calendar_lookup`. Given a complex query, it plans a multi-step execution graph with parallel branches for independent sub-tasks.
-```
-Tech: LangGraph · tool registry · parallel execution branches · agents/planner.py
-```
-
-#### Proactive Research Agent
-A background agent that monitors RSS feeds, PubMed, arXiv, SEC EDGAR, and configured URLs on a schedule. When new content is detected with cosine similarity > 0.7 to existing corpus topics, it automatically ingests and indexes it. Users receive a digest notification summarizing what was added, configurable per-user topic subscriptions.
-```
-Tech: RSS/Atom crawler · PubMed API · topic similarity trigger · digest notifications
-```
-
-#### Feedback Learning Loop
-Collect thumbs up/down ratings and optional text feedback on every response. Store in PostgreSQL. A weekly batch job clusters low-rated responses by failure mode (wrong document retrieved, hallucination, incomplete answer) and uses failures as negative examples to fine-tune the reranker or update retrieval heuristics.
-```
-Tech: feedback store · failure clustering · reranker fine-tuning · DPO training pipeline
-```
-
----
-
-### 🖼️ Multimodal — Beyond Text
-
-#### Chart & Figure Understanding
-For every figure in a PDF: (1) extract with pdfplumber, (2) send to Gemini 3 Vision to generate a structured description and extract data points as JSON, (3) index the description as a chunk with `figure_type` and `source_page` metadata. Tables are extracted as markdown and indexed as structured chunks — unlocking the 40–60% of information in documents that is purely visual.
-```
-Tech: Gemini 3 Vision · pdfplumber figure extraction · table markdown · multimodal chunking
-```
-
-#### Audio & Video Transcription
-Add support for `.mp3`, `.mp4`, `.wav` uploads. Whisper `large-v3` transcribes with word-level timestamps. Chunks are split at sentence boundaries with timestamps preserved as metadata. Citations include time references: *"According to the board meeting recording at 14:32..."*
-```
-Tech: Whisper large-v3 · timestamp-aware chunks · audio citations · pipeline/audio_extractor.py
-```
-
----
-
-### 📏 Evaluation — Measuring What Matters
-
-#### RAGAS Auto-Evaluation
-Integrate the RAGAS framework to evaluate every production response asynchronously. Metrics tracked: `faithfulness`, `answer_relevancy`, `context_recall`, `context_precision`. Scores are stored in Opik. A Slack alert fires if faithfulness drops below 0.80 on any rolling 100-response window.
-```
-Tech: ragas · async evaluation worker · Opik dashboard · Slack alerting
-```
-
-#### Golden Dataset CI/CD Gate
-A curated set of 200 question–answer pairs with known correct citations runs the full Genesis pipeline on every PR that touches retrieval or prompt code. Metrics: citation exact-match, ROUGE-L on answer text, faithfulness score. Deployments are blocked if any metric regresses more than 5% vs. the baseline.
-```
-Tech: golden dataset · pytest-benchmark · ROUGE-L · GitHub Actions deployment gate
-```
-
----
-
----
-
-## 📜 License
-
-Copyright (c) 2026 Rohan Malyadri, Obscuron X Labs. All rights reserved. See [LICENSE](LICENSE).
-
----
-
-<p align="center">Made with ❤️ by <b>Rohan Malyadri</b> from <b>Obscuron X Labs</b></p>
+Released under the [MIT License](LICENSE). Copyright (c) 2026 Rohan Malyadri, Obscuron X Labs.
