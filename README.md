@@ -4,7 +4,7 @@
 
 **A retrieval platform you can inspect.** It finds evidence two ways, checks it, ranks it, protects it, and shows its work.
 
-[![Watch the product film](https://img.youtube.com/vi/f4Ia8OKZeOQ/maxresdefault.jpg)](https://youtu.be/f4Ia8OKZeOQ)
+[![Watch the product film](docs/film-thumbnail.jpg)](https://youtu.be/f4Ia8OKZeOQ)
 
 ▶️ **[Watch the product film on YouTube](https://youtu.be/f4Ia8OKZeOQ)** · 🌐 **[Try the live app](https://genesis-rag.onrender.com/)**
 
